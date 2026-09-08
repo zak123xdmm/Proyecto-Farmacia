@@ -1,0 +1,10 @@
+.modal{max-height:90vh;overflow-y:auto}.wide-modal{width:min(1100px,100%)}
+textarea{display:block;width:100%;min-height:85px;margin-top:7px;background:#091521;border:1px solid var(--line);border-radius:8px;padding:10px;color:#d8e4eb;font:inherit;resize:vertical}
+.action-line{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.action-line input{max-width:160px}
+.detail-body{padding:20px}.detail-body p{color:var(--muted);font-size:12px;line-height:1.6}
+.count-summary{display:flex;flex-wrap:wrap;gap:24px;margin:16px 0;color:var(--text);font-size:13px}
+.report-filters{margin-bottom:18px}.report-filters .form-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.report-tabs{display:flex;gap:8px;margin:18px 0}.report-tabs .active{border-color:var(--cyan);color:var(--cyan)}
+.muted{line-height:1.6}.cell-note{white-space:normal;max-width:260px;overflow-wrap:anywhere}
+.sale-row .row-actions{text-align:right}.row-actions .link-btn{display:block;margin:7px 0 0 auto}
+@media(max-width:780px){.report-filters .form-grid{grid-template-columns:1fr}.count-summary{gap:12px}.wide-modal{width:100%}}

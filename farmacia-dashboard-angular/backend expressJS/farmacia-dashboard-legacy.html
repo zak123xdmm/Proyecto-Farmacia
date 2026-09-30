@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel · Sistema Farmacia</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><rect width=%2224%22 height=%2224%22 rx=%226%22 fill=%22%236366f1%22/><text x=%2212%22 y=%2217%22 font-size=%2213%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22monospace%22>Rx</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        base: { DEFAULT:'#060814', panel:'#0d1024', alt:'#11142b', border:'#1d2242', borderStrong:'#2b3163' },
+        ink: { DEFAULT:'#e6e9f7', dim:'#8b91b8', faint:'#565c85' },
+        indigo: { DEFAULT:'#6366f1', bright:'#8385f5', deep:'#4338ca' },
+        cyanx: { DEFAULT:'#22d3ee', dim:'#0e7490', bright:'#67e8f9' },
+        ok: '#34d399', warn:'#fbbf24', bad:'#f87171'
+      },
+      fontFamily: {
+        display: ['"Space Grotesk"','sans-serif'],
+        mono: ['"JetBrains Mono"','monospace']
+      },
+      boxShadow: { glow:'0 0 0 1px rgba(99,102,241,.25), 0 0 24px -6px rgba(34,211,238,.25)' }
+    }
+  }
+}
+</script>
+<style>
+  html,body{ background:#060814; }
+  * { box-sizing:border-box; }
+  body { font-family:'Space Grotesk',sans-serif; }
+  ::selection{ background:#6366f1; color:#fff; }
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-track{ background:#0a0d1e; }
+  ::-webkit-scrollbar-thumb{ background:#242a52; border-radius:8px; }
+  ::-webkit-scrollbar-thumb:hover{ background:#343c78; }
+  .bg-grid{
+    background-image:
+      linear-gradient(rgba(99,102,241,.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(99,102,241,.05) 1px, transparent 1px);
+    background-size: 34px 34px;
+  }
+  .caret{ display:inline-block; width:7px; height:14px; background:#22d3ee; margin-left:2px; animation:blink 1s steps(1) infinite; vertical-align:-2px; }
+  @keyframes blink{ 50%{ opacity:0; } }
+  .pulse-dot{ position:relative; }
+  .pulse-dot::after{ content:''; position:absolute; inset:0; border-radius:9999px; animation:pulse-ring 1.8s cubic-bezier(0.4,0,0.6,1) infinite; }
+  @keyframes pulse-ring{ 0%{ box-shadow:0 0 0 0 currentColor; opacity:.55;} 100%{ box-shadow:0 0 0 8px currentColor; opacity:0; } }
+  .focus-ring:focus-visible{ outline:2px solid #22d3ee; outline-offset:2px; }
+  @media (prefers-reduced-motion: reduce){ *{ animation:none !important; transition:none !important; } }
+  input, select, textarea { background:#0a0d20; }
+  input::placeholder, textarea::placeholder { color:#4a5080; }
+</style>
+</head>
+<body class="bg-base text-ink min-h-screen bg-grid">
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ---------------------------------------------------------------- */
+/* Utilidades                                                        */
+/* ---------------------------------------------------------------- */
+
+function safeStorage(){
+  try{ const k='__t__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return localStorage; }
+  catch(e){ return null; }
+}
+const LS = safeStorage();
+function lsGet(key, fallback){ try{ if(!LS) return fallback; const v = LS.getItem(key); return v===null? fallback : v; }catch(e){ return fallback; } }
+function lsSet(key, val){ try{ if(!LS) return; LS.setItem(key, val); }catch(e){} }
+
+function b64urlDecode(str){
+  try{
+    let p = str.replace(/-/g,'+').replace(/_/g,'/');
+    while(p.length % 4) p += '=';
+    return decodeURIComponent(atob(p).split('').map(c=>'%'+('00'+c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+  }catch(e){ return null; }
+}
+function decodeJwt(token){
+  if(!token) return null;
+  const parts = token.split('.');
+  if(parts.length!==3) return null;
+  try{
+    return { header: JSON.parse(b64urlDecode(parts[0])), payload: JSON.parse(b64urlDecode(parts[1])) };
+  }catch(e){ return null; }
+}
+function fmtTime(d){
+  return d.toLocaleTimeString('es-BO', { hour12:false });
+}
+function fmtMoney(n){
+  const v = Number(n||0);
+  return 'Bs ' + v.toLocaleString('es-BO',{minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function fmtDate(s){
+  if(!s) return '—';
+  try{ return new Date(s).toLocaleDateString('es-BO'); }catch(e){ return s; }
+}
+function uid(){ return Math.random().toString(36).slice(2,10); }
+
+/* ---------------------------------------------------------------- */
+/* Iconos (SVG a medida, sin librerías externas)                     */
+/* ---------------------------------------------------------------- */
+
+function Icon({ name, className }){
+  const cls = className || "w-4 h-4";
+  const common = { className:cls, viewBox:"0 0 24 24", fill:"none", stroke:"currentColor", strokeWidth:"1.6", strokeLinecap:"round", strokeLinejoin:"round" };
+  switch(name){
+    case 'grid':
+      return <svg {...common}><rect x="3" y="3" width="7.5" height="7.5" rx="1.4"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.4"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.4"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.4"/></svg>;
+    case 'list':
+      return <svg {...common}><rect x="3" y="4" width="18" height="4.2" rx="1"/><rect x="3" y="10" width="18" height="4.2" rx="1"/><rect x="3" y="16" width="18" height="4.2" rx="1"/></svg>;
+    case 'capsule':
+      return <svg {...common}><rect x="3" y="9" width="18" height="6" rx="3"/><line x1="12" y1="9" x2="12" y2="15"/></svg>;
+    case 'folder':
+      return <svg {...common}><path d="M3 6.5a1.4 1.4 0 0 1 1.4-1.4H9l2 2h9.1A1.4 1.4 0 0 1 21.5 8.5V17a1.4 1.4 0 0 1-1.4 1.4H4.4A1.4 1.4 0 0 1 3 17z"/></svg>;
+    case 'box':
+      return <svg {...common}><path d="M3 8l9-4.5L21 8v8l-9 4.5L3 16z"/><path d="M3 8l9 4.5L21 8"/><line x1="12" y1="12.5" x2="12" y2="20.5"/></svg>;
+    case 'coin':
+      return <svg {...common}><circle cx="12" cy="12" r="8.5"/><text x="12" y="15.3" fontSize="8" textAnchor="middle" stroke="none" fill="currentColor" fontFamily="JetBrains Mono">Bs</text></svg>;
+    case 'chart':
+      return <svg {...common}><line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="13" width="3" height="7"/><rect x="11" y="9" width="3" height="11"/><rect x="16" y="5" width="3" height="15"/></svg>;
+    case 'users':
+      return <svg {...common}><circle cx="8.5" cy="8" r="3"/><path d="M3 20c0-3.3 2.5-6 5.5-6S14 16.7 14 20"/><circle cx="17" cy="9" r="2.4"/><path d="M15.3 13.5c2.6.2 4.7 2.6 4.7 5.5"/></svg>;
+    case 'terminal':
+      return <svg {...common}><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M7 10l3 2.5L7 15"/><line x1="12.5" y1="15" x2="17" y2="15"/></svg>;
+    case 'key':
+      return <svg {...common}><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9"/><path d="M16 7l3 3"/><path d="M13 10l2.5 2.5"/></svg>;
+    case 'db':
+      return <svg {...common}><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg>;
+    case 'server':
+      return <svg {...common}><rect x="3.5" y="4" width="17" height="6.5" rx="1.6"/><rect x="3.5" y="13.5" width="17" height="6.5" rx="1.6"/><circle cx="7" cy="7.25" r=".9" fill="currentColor" stroke="none"/><circle cx="7" cy="16.75" r=".9" fill="currentColor" stroke="none"/></svg>;
+    case 'refresh':
+      return <svg {...common}><path d="M4 11a8 8 0 0 1 14-5.3L20 8"/><path d="M20 4v4.5h-4.5"/><path d="M20 13a8 8 0 0 1-14 5.3L4 16"/><path d="M4 20v-4.5h4.5"/></svg>;
+    case 'logout':
+      return <svg {...common}><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M14 16l4-4-4-4"/><line x1="18" y1="12" x2="8" y2="12"/></svg>;
+    case 'plus':
+      return <svg {...common}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>;
+    case 'trash':
+      return <svg {...common}><line x1="4" y1="7" x2="20" y2="7"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7"/></svg>;
+    case 'edit':
+      return <svg {...common}><path d="M4 20l.9-3.9L16.6 4.4a1.8 1.8 0 0 1 2.6 0l.4.4a1.8 1.8 0 0 1 0 2.6L8 19.1z"/><line x1="14.5" y1="6.5" x2="17.5" y2="9.5"/></svg>;
+    case 'x':
+      return <svg {...common}><line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/></svg>;
+    case 'search':
+      return <svg {...common}><circle cx="10.5" cy="10.5" r="6.5"/><line x1="19" y1="19" x2="15.2" y2="15.2"/></svg>;
+    case 'chevron':
+      return <svg {...common}><polyline points="6 9 12 15 18 9"/></svg>;
+    case 'check':
+      return <svg {...common}><path d="M4 13l5 5L20 6"/></svg>;
+    case 'alert':
+      return <svg {...common}><path d="M12 4l9 15.5H3z"/><line x1="12" y1="10" x2="12" y2="14.5"/><circle cx="12" cy="17.2" r=".4" fill="currentColor" stroke="none"/></svg>;
+    case 'menu':
+      return <svg {...common}><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>;
+    case 'undo':
+      return <svg {...common}><path d="M9 14l-5-4 5-4"/><path d="M4 10h10a6 6 0 0 1 0 12h-3"/></svg>;
+    default:
+      return <svg {...common}><circle cx="12" cy="12" r="8"/></svg>;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Contexto de la app: conexión, sesión y consola de actividad       */
+/* ---------------------------------------------------------------- */
+
+const AppCtx = React.createContext(null);
+function useApp(){ return React.useContext(AppCtx); }
+
+function useAppState(){
+  const [baseUrl, setBaseUrlState] = useState(lsGet('farmacia_baseUrl', 'http://localhost:3000/api'));
+  const [token, setTokenState] = useState(lsGet('farmacia_token', ''));
+  const [currentUser, setCurrentUser] = useState(() => {
+    const t = lsGet('farmacia_token', '');
+    const d = decodeJwt(t);
+    return d ? d.payload : null;
+  });
+  const [logs, setLogs] = useState([]);
+  const [serverStatus, setServerStatus] = useState('checking'); // checking | online | offline
+  const [dbStatus, setDbStatus] = useState('checking');
+  const [latency, setLatency] = useState(null);
+  const [detectedPort, setDetectedPort] = useState(null);
+  const logIdRef = useRef(0);
+
+  const setBaseUrl = useCallback((v) => { setBaseUrlState(v); lsSet('farmacia_baseUrl', v); }, []);
+
+  const pushLog = useCallback((entry) => {
+    logIdRef.current += 1;
+    setLogs(prev => {
+      const next = [...prev, { id: logIdRef.current, time: new Date(), ...entry }];
+      return next.length > 300 ? next.slice(next.length - 300) : next;
+    });
+  }, []);
+
+  const clearLogs = useCallback(() => setLogs([]), []);
+
+  const setSession = useCallback((tok) => {
+    setTokenState(tok);
+    lsSet('farmacia_token', tok || '');
+    const d = decodeJwt(tok);
+    setCurrentUser(d ? d.payload : null);
+  }, []);
+
+  const logout = useCallback(() => {
+    setSession('');
+    pushLog({ level:'info', method:'', path:'', status:null, message:'Sesión cerrada localmente.' });
+  }, [setSession, pushLog]);
+
+  /* Llamada genérica a la API, registrada en la consola */
+  const api = useCallback(async (method, path, body, opts) => {
+    opts = opts || {};
+    const url = baseUrl.replace(/\/$/,'') + path;
+    const headers = { 'Content-Type': 'application/json' };
+    if (token && !opts.noAuth) headers['Authorization'] = 'Bearer ' + token;
+    const started = performance.now();
+    let res, data, ok, status, errMsg = null;
+    try {
+      res = await fetch(url, {
+        method,
+        headers,
+        body: (method === 'GET' || method === 'DELETE' && !body) ? undefined : JSON.stringify(body || {})
+      });
+      status = res.status;
+      ok = res.ok;
+      try { data = await res.json(); } catch(e){ data = null; }
+    } catch (e) {
+      ok = false; status = 0; errMsg = 'No se pudo contactar al servidor (' + (e.message || 'network error') + ')';
+    }
+    const dur = Math.round(performance.now() - started);
+    if (!opts.silent) {
+      pushLog({
+        level: ok && (data ? data.ok !== false : true) ? 'success' : 'error',
+        method, path, status, duration: dur,
+        message: errMsg || (data && data.mensaje) || (ok ? 'OK' : 'Error de solicitud')
+      });
+    }
+    if (errMsg) return { ok:false, network:true, mensaje: errMsg, status:0 };
+    if (data && typeof data === 'object') return { ...data, __status: status };
+    return { ok, __status: status, mensaje: ok ? undefined : ('HTTP ' + status) };
+  }, [baseUrl, token, pushLog]);
+
+  /* Heartbeat silencioso: server + BD (usa /catalogo, ruta pública) */
+  const ping = useCallback(async (manual) => {
+    setServerStatus('checking');
+    if(manual) setDbStatus('checking');
+    const t0 = performance.now();
+    const r = await api('GET', '/catalogo', null, { noAuth:true, silent: !manual });
+    const dt = Math.round(performance.now() - t0);
+    setLatency(dt);
+    if (r.network) {
+      setServerStatus('offline'); setDbStatus('offline');
+    } else {
+      setServerStatus('online');
+      setDbStatus(r.ok ? 'online' : 'offline');
+      const m = baseUrl.match(/:(\d+)/);
+      setDetectedPort(m ? m[1] : null);
+    }
+    return r;
+  }, [api, baseUrl]);
+
+  useEffect(() => {
+    ping(false);
+    const iv = setInterval(() => ping(false), 9000);
+    return () => clearInterval(iv);
+  }, [ping]);
+
+  return {
+    baseUrl, setBaseUrl, token, currentUser, setSession, logout,
+    logs, pushLog, clearLogs, api, ping, serverStatus, dbStatus, latency, detectedPort
+  };
+}
+
+function roleAllowed(user, roles){
+  if (!roles) return true;
+  if (!user) return false;
+  return roles.includes(user.rol);
+}
+const ROLE_ADMIN = 'Administrador/Gerente';
+const ROLE_REGENTE = 'Farmacéutico Regente';
+
+/* ---------------------------------------------------------------- */
+/* Componentes compartidos de UI                                     */
+/* ---------------------------------------------------------------- */
+
+function StatusDot({ state, size }) {
+  const map = { online:'text-ok', offline:'text-bad', checking:'text-warn' };
+  const s = size || 8;
+  return (
+    <span className={"pulse-dot inline-block rounded-full " + (map[state]||'text-ink-faint')}
+      style={{ width:s, height:s, backgroundColor:'currentColor' }} />
+  );
+}
+
+function Pill({ children, tone }) {
+  const tones = {
+    ok: 'text-ok border-ok/30 bg-ok/10',
+    bad: 'text-bad border-bad/30 bg-bad/10',
+    warn: 'text-warn border-warn/30 bg-warn/10',
+    indigo: 'text-indigo-bright border-indigo/40 bg-indigo/10',
+    cyan: 'text-cyanx-bright border-cyanx/30 bg-cyanx/10',
+    neutral: 'text-ink-dim border-base-borderStrong bg-base-alt'
+  };
+  return (
+    <span className={"inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border font-mono text-[11px] tracking-tight " + (tones[tone]||tones.neutral)}>
+      {children}
+    </span>
+  );
+}
+
+function Card({ title, icon, badge, className, headerRight, children }) {
+  return (
+    <div className={"rounded-xl border border-base-border bg-base-panel/80 backdrop-blur-sm flex flex-col " + (className||'')}>
+      {title && (
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-base-border">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {icon && <span className="text-cyanx shrink-0"><Icon name={icon} className="w-4 h-4"/></span>}
+            <h3 className="font-display font-semibold text-[13.5px] tracking-tight text-ink truncate">{title}</h3>
+            {badge}
+          </div>
+          {headerRight}
+        </div>
+      )}
+      <div className="p-4 sm:p-5 flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function Button({ children, onClick, variant, size, disabled, type, className, title }) {
+  const base = "inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors duration-150 focus-ring disabled:opacity-40 disabled:cursor-not-allowed";
+  const sizes = { sm:'text-[12px] px-2.5 py-1.5', md:'text-[13px] px-3.5 py-2', lg:'text-sm px-4 py-2.5' };
+  const variants = {
+    primary: 'bg-gradient-to-b from-indigo-bright to-indigo text-white hover:brightness-110 shadow-[0_0_0_1px_rgba(99,102,241,.4)]',
+    cyan: 'bg-cyanx/15 text-cyanx-bright border border-cyanx/40 hover:bg-cyanx/25',
+    ghost: 'bg-transparent text-ink-dim border border-base-borderStrong hover:text-ink hover:border-indigo/50',
+    danger: 'bg-bad/10 text-bad border border-bad/30 hover:bg-bad/20',
+    subtle: 'bg-base-alt text-ink-dim hover:text-ink border border-base-border'
+  };
+  return (
+    <button type={type||'button'} title={title} disabled={disabled} onClick={onClick}
+      className={base+' '+(sizes[size||'md'])+' '+(variants[variant||'primary'])+' '+(className||'')}>
+      {children}
+    </button>
+  );
+}
+
+function Field({ label, children, hint, required, className }) {
+  return (
+    <label className={"block " + (className||'')}>
+      {label && <span className="block text-[11.5px] font-mono uppercase tracking-wide text-ink-faint mb-1.5">{label}{required && <span className="text-cyanx"> *</span>}</span>}
+      {children}
+      {hint && <span className="block text-[11px] text-ink-faint mt-1">{hint}</span>}
+    </label>
+  );
+}
+
+const inputCls = "w-full rounded-lg border border-base-borderStrong bg-base-alt text-ink text-[13px] px-3 py-2 focus-ring focus:border-cyanx/60 placeholder:text-ink-faint";
+
+function TextInput(props){ return <input {...props} className={inputCls + ' ' + (props.className||'')} />; }
+function Select({ children, ...props }){ return <select {...props} className={inputCls + ' ' + (props.className||'')}>{children}</select>; }
+
+function Modal({ title, onClose, children, wide }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-3 sm:p-6 bg-black/60 backdrop-blur-sm overflow-y-auto">
+      <div className={"w-full " + (wide ? 'max-w-2xl' : 'max-w-md') + " rounded-xl border border-base-borderStrong bg-base-panel shadow-2xl my-6"}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-base-border">
+          <h3 className="font-display font-semibold text-sm text-ink">{title}</h3>
+          <button onClick={onClose} className="text-ink-faint hover:text-ink focus-ring rounded"><Icon name="x" className="w-4.5 h-4.5"/></button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ text, icon }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-10 text-ink-faint">
+      <Icon name={icon||'search'} className="w-7 h-7 mb-2.5 opacity-60"/>
+      <p className="text-[13px] font-mono">{text}</p>
+    </div>
+  );
+}
+
+function Th({ children, className }){ return <th className={"text-left font-mono text-[10.5px] uppercase tracking-wide text-ink-faint font-medium px-3 py-2.5 " + (className||'')}>{children}</th>; }
+function Td({ children, className }){ return <td className={"px-3 py-2.5 text-[13px] text-ink align-middle " + (className||'')}>{children}</td>; }
+
+function Toast({ toast, onClose }) {
+  if (!toast) return null;
+  const tones = { success:'border-ok/40 text-ok', error:'border-bad/40 text-bad' };
+  return (
+    <div className={"fixed bottom-5 right-5 z-[60] max-w-sm rounded-lg border bg-base-panel px-4 py-3 shadow-2xl font-mono text-[12.5px] " + (tones[toast.type]||tones.success)}>
+      <div className="flex items-start gap-2">
+        <Icon name={toast.type==='error'?'alert':'check'} className="w-4 h-4 mt-0.5 shrink-0"/>
+        <span className="text-ink">{toast.message}</span>
+        <button onClick={onClose} className="ml-auto text-ink-faint hover:text-ink shrink-0"><Icon name="x" className="w-3.5 h-3.5"/></button>
+      </div>
+    </div>
+  );
+}
+
+function useToast(){
+  const [toast, setToast] = useState(null);
+  const show = useCallback((message, type) => {
+    setToast({ message, type: type||'success', id: uid() });
+  }, []);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3600);
+    return () => clearTimeout(t);
+  }, [toast]);
+  return [toast, show, () => setToast(null)];
+}
+
+/* ---------------------------------------------------------------- */
+/* Navegación                                                         */
+/* ---------------------------------------------------------------- */
+
+const NAV_ITEMS = [
+  { id:'dashboard', label:'Dashboard', icon:'grid', roles:null },
+  { id:'catalogo', label:'Catálogo', icon:'list', roles:null, publicOk:true },
+  { id:'medicamentos', label:'Medicamentos', icon:'capsule', roles:null, needsAuth:true },
+  { id:'categorias', label:'Categorías', icon:'folder', roles:[ROLE_ADMIN, ROLE_REGENTE], needsAuth:true },
+  { id:'lotes', label:'Lotes e inventario', icon:'box', roles:[ROLE_ADMIN, ROLE_REGENTE], needsAuth:true },
+  { id:'ventas', label:'Ventas', icon:'coin', roles:null, needsAuth:true },
+  { id:'reportes', label:'Reportes', icon:'chart', roles:[ROLE_ADMIN, ROLE_REGENTE], needsAuth:true },
+  { id:'usuarios', label:'Usuarios', icon:'users', roles:[ROLE_ADMIN], needsAuth:true },
+];
+
+function Sidebar({ active, onNavigate, open, onCloseMobile }) {
+  const { currentUser } = useApp();
+  return (
+    <>
+      {open && <div className="fixed inset-0 z-30 bg-black/50 lg:hidden" onClick={onCloseMobile}/>}
+      <aside className={
+        "fixed lg:sticky top-0 z-40 h-screen w-64 shrink-0 border-r border-base-border bg-base-panel/95 backdrop-blur-sm flex flex-col transition-transform duration-200 " +
+        (open ? "translate-x-0" : "-translate-x-full lg:translate-x-0")
+      }>
+        <div className="flex items-center gap-2.5 px-5 h-16 border-b border-base-border shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo to-cyanx flex items-center justify-center font-mono font-bold text-[13px] text-base shadow-glow">℞</div>
+          <div className="leading-tight min-w-0">
+            <p className="font-display font-semibold text-[13.5px] text-ink truncate">Sistema Farmacia</p>
+            <p className="font-mono text-[10px] text-ink-faint truncate">panel de administración</p>
+          </div>
+        </div>
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
+          {NAV_ITEMS.map(item => {
+            const locked = item.needsAuth && !currentUser;
+            const forbidden = currentUser && item.roles && !roleAllowed(currentUser, item.roles);
+            const isActive = active === item.id;
+            return (
+              <button key={item.id} onClick={() => onNavigate(item.id)}
+                className={
+                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors group " +
+                  (isActive ? "bg-indigo/15 text-ink border border-indigo/40" : "text-ink-dim hover:text-ink hover:bg-base-alt border border-transparent")
+                }>
+                <span className={isActive ? "text-cyanx" : "text-ink-faint group-hover:text-cyanx"}><Icon name={item.icon} className="w-4 h-4"/></span>
+                <span className="flex-1 text-left truncate">{item.label}</span>
+                {(locked || forbidden) && <Icon name="key" className="w-3.5 h-3.5 text-ink-faint"/>}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="px-5 py-4 border-t border-base-border">
+          <p className="font-mono text-[10px] text-ink-faint leading-relaxed">
+            Frontend independiente · React + Tailwind<br/>conectado a tu API Express local.
+          </p>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function Topbar({ onMenu, onNavigate }) {
+  const app = useApp();
+  const { serverStatus, dbStatus, detectedPort, currentUser, logout, baseUrl } = app;
+  const statusLabel = { online:'En línea', offline:'Sin conexión', checking:'Verificando' };
+  return (
+    <header className="sticky top-0 z-20 h-16 border-b border-base-border bg-base/90 backdrop-blur-sm flex items-center gap-3 px-4 sm:px-6">
+      <button onClick={onMenu} className="lg:hidden text-ink-dim hover:text-ink focus-ring rounded"><Icon name="menu" className="w-5 h-5"/></button>
+
+      <div className="hidden md:flex items-center gap-2 font-mono text-[11.5px] text-ink-faint">
+        <Icon name="server" className="w-3.5 h-3.5"/>
+        <span className="truncate max-w-[220px]">{baseUrl}</span>
+      </div>
+
+      <div className="flex-1"/>
+
+      <div className="flex items-center gap-2">
+        <Pill tone={serverStatus==='online'?'ok':serverStatus==='offline'?'bad':'warn'}>
+          <StatusDot state={serverStatus} size={6}/> Servidor · {statusLabel[serverStatus]}
+        </Pill>
+        {detectedPort && <Pill tone="indigo">Puerto {detectedPort}</Pill>}
+        <Pill tone={dbStatus==='online'?'ok':dbStatus==='offline'?'bad':'warn'}>
+          <StatusDot state={dbStatus} size={6}/> BD
+        </Pill>
+      </div>
+
+      <div className="w-px h-6 bg-base-border mx-1 hidden sm:block"/>
+
+      {currentUser ? (
+        <div className="flex items-center gap-2.5">
+          <div className="text-right leading-tight hidden sm:block">
+            <p className="text-[12.5px] font-medium text-ink truncate max-w-[140px]">{currentUser.usuario}</p>
+            <p className="text-[10.5px] font-mono text-cyanx-bright truncate max-w-[140px]">{currentUser.rol}</p>
+          </div>
+          <button onClick={logout} title="Cerrar sesión" className="w-8 h-8 rounded-lg border border-base-borderStrong text-ink-dim hover:text-bad hover:border-bad/40 flex items-center justify-center focus-ring">
+            <Icon name="logout" className="w-4 h-4"/>
+          </button>
+        </div>
+      ) : (
+        <Button size="sm" onClick={() => onNavigate('dashboard')}><Icon name="key" className="w-3.5 h-3.5"/> Iniciar sesión</Button>
+      )}
+    </header>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Vista: Dashboard (los 5 elementos solicitados)                    */
+/* ---------------------------------------------------------------- */
+
+const ENV_FIELDS = [
+  { key:'DB_HOST', label:'DB_HOST', hint:'Host de MySQL' },
+  { key:'DB_NAME', label:'DB_NAME', hint:'Base de datos' },
+  { key:'DB_USER', label:'DB_USER', hint:'Usuario MySQL' },
+  { key:'DB_PASS', label:'DB_PASS', hint:'Contraseña MySQL', secret:true },
+  { key:'DB_CHARSET', label:'DB_CHARSET', hint:'Charset de conexión' },
+  { key:'PORT', label:'PORT', hint:'Puerto del servidor Express' },
+  { key:'JWT_SECRET', label:'JWT_SECRET', hint:'Firma HMAC de los tokens', secret:true },
+  { key:'ALERT_EMAILS', label:'ALERT_EMAILS', hint:'Correos para alertas FEFO/stock (separados por coma)' },
+];
+const ENV_DEFAULTS = {
+  DB_HOST:'127.0.0.1', DB_NAME:'farmacia_sistema', DB_USER:'root', DB_PASS:'',
+  DB_CHARSET:'utf8mb4', PORT:'3000', JWT_SECRET:'', ALERT_EMAILS:''
+};
+
+function EnvCard() {
+  const [env, setEnv] = useState(() => {
+    try {
+      const saved = JSON.parse(lsGet('farmacia_env', 'null'));
+      return saved || ENV_DEFAULTS;
+    } catch(e){ return ENV_DEFAULTS; }
+  });
+  const [revealed, setRevealed] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  const update = (k, v) => setEnv(prev => ({ ...prev, [k]: v }));
+  const save = () => { lsSet('farmacia_env', JSON.stringify(env)); setSavedFlash(true); setTimeout(()=>setSavedFlash(false), 1500); };
+  const reset = () => setEnv(ENV_DEFAULTS);
+
+  const envText = ENV_FIELDS.map(f => f.key + '=' + (env[f.key] ?? '')).join('\n');
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(envText); setSavedFlash(true); setTimeout(()=>setSavedFlash(false), 1500); } catch(e){}
+  };
+
+  return (
+    <Card title="Variables de entorno (.env)" icon="key"
+      headerRight={<Pill tone="neutral">local · sin sincronizar</Pill>}>
+      <p className="text-[12px] text-ink-faint mb-4 leading-relaxed">
+        Este panel no lee ni escribe el <code className="font-mono text-cyanx-bright">.env</code> real del servidor
+        (por seguridad, la API no expone esa ruta). Es un editor de referencia guardado solo en este navegador,
+        precargado con la configuración esperada por <code className="font-mono">src/config/env.js</code>.
+      </p>
+      <div className="grid sm:grid-cols-2 gap-3">
+        {ENV_FIELDS.map(f => (
+          <div key={f.key}>
+            <span className="block text-[10.5px] font-mono uppercase tracking-wide text-ink-faint mb-1">{f.label}</span>
+            <input
+              type={f.secret && !revealed ? 'password' : 'text'}
+              value={env[f.key] ?? ''}
+              onChange={e => update(f.key, e.target.value)}
+              placeholder={f.hint}
+              className={inputCls + " font-mono text-[12.5px]"}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 mt-4">
+        <Button size="sm" onClick={save}>{savedFlash ? <><Icon name="check" className="w-3.5 h-3.5"/> Guardado</> : 'Guardar en este navegador'}</Button>
+        <Button size="sm" variant="ghost" onClick={() => setRevealed(r=>!r)}>{revealed ? 'Ocultar secretos' : 'Mostrar secretos'}</Button>
+        <Button size="sm" variant="subtle" onClick={copy}>Copiar como .env</Button>
+        <Button size="sm" variant="subtle" onClick={reset}><Icon name="undo" className="w-3.5 h-3.5"/> Restaurar</Button>
+      </div>
+    </Card>
+  );
+}
+
+function AuthBcryptCard() {
+  const app = useApp();
+  const { api, setSession, currentUser, token } = app;
+  const [usuario, setUsuario] = useState('admin');
+  const [password, setPassword] = useState('admin123');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const [hashInput, setHashInput] = useState('admin123');
+  const [rounds, setRounds] = useState(12);
+  const [hashOut, setHashOut] = useState('');
+  const [verifyPass, setVerifyPass] = useState('');
+  const [verifyHash, setVerifyHash] = useState('');
+  const [verifyResult, setVerifyResult] = useState(null);
+  const bcryptReady = typeof window.dcodeIO !== 'undefined' && window.dcodeIO.bcrypt;
+
+  const doLogin = async () => {
+    setBusy(true); setResult(null);
+    const r = await api('POST', '/auth/login', { usuario, password }, { noAuth:true });
+    setBusy(false);
+    setResult(r);
+    if (r.ok && r.token) setSession(r.token);
+  };
+
+  const doHash = () => {
+    if (!bcryptReady) return;
+    try { setHashOut(window.dcodeIO.bcrypt.hashSync(hashInput, Number(rounds)||10)); }
+    catch(e){ setHashOut('Error: ' + e.message); }
+  };
+  const doVerify = () => {
+    if (!bcryptReady) return;
+    try { setVerifyResult(window.dcodeIO.bcrypt.compareSync(verifyPass, verifyHash)); }
+    catch(e){ setVerifyResult(false); }
+  };
+
+  const decoded = decodeJwt(token);
+
+  return (
+    <Card title="Autenticación · bcrypt" icon="key"
+      headerRight={<Pill tone={currentUser?'ok':'neutral'}>{currentUser ? 'sesión activa' : 'sin sesión'}</Pill>}>
+
+      <p className="text-[11.5px] font-mono uppercase tracking-wide text-ink-faint mb-2">POST /auth/login</p>
+      <div className="grid sm:grid-cols-2 gap-3 mb-3">
+        <TextInput placeholder="usuario" value={usuario} onChange={e=>setUsuario(e.target.value)} />
+        <TextInput placeholder="password" type="text" value={password} onChange={e=>setPassword(e.target.value)} />
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <Button size="sm" onClick={doLogin} disabled={busy}>{busy ? 'Enviando…' : 'Probar login'}</Button>
+        <span className="text-[11px] text-ink-faint font-mono">credenciales de ejemplo (dev): admin / admin123</span>
+      </div>
+      {result && (
+        <div className={"rounded-lg border px-3 py-2.5 text-[12px] font-mono mb-4 " + (result.ok ? "border-ok/30 bg-ok/5 text-ok" : "border-bad/30 bg-bad/5 text-bad")}>
+          {result.ok ? ('OK · rol: ' + (result.usuario && result.usuario.rol)) : (result.mensaje || 'Error de autenticación')}
+        </div>
+      )}
+      {!result && <div className="mb-4"/>}
+
+      {decoded && (
+        <div className="mb-4 rounded-lg border border-base-border bg-base-alt/60 px-3 py-2.5">
+          <p className="text-[10.5px] font-mono uppercase tracking-wide text-ink-faint mb-1">Token actual (decodificado)</p>
+          <p className="text-[12px] font-mono text-cyanx-bright">sub {decoded.payload.sub} · {decoded.payload.usuario} · {decoded.payload.rol}</p>
+          <p className="text-[11px] font-mono text-ink-faint">expira {new Date(decoded.payload.exp*1000).toLocaleString('es-BO')}</p>
+        </div>
+      )}
+
+      <div className="h-px bg-base-border my-4"/>
+
+      <p className="text-[11.5px] font-mono uppercase tracking-wide text-ink-faint mb-2">Laboratorio bcrypt (cliente)</p>
+      {!bcryptReady && <p className="text-[11.5px] text-warn font-mono mb-2">bcryptjs no se cargó desde el CDN — revisa tu conexión a internet.</p>}
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div>
+          <div className="flex gap-2 mb-2">
+            <TextInput placeholder="texto plano" value={hashInput} onChange={e=>setHashInput(e.target.value)} />
+            <TextInput placeholder="rounds" type="number" min="4" max="14" value={rounds} onChange={e=>setRounds(e.target.value)} className="w-20 shrink-0"/>
+          </div>
+          <Button size="sm" variant="cyan" onClick={doHash} disabled={!bcryptReady}>Generar hash</Button>
+          {hashOut && <p className="mt-2 text-[11px] font-mono text-ink break-all bg-base-alt border border-base-border rounded-lg px-2.5 py-2">{hashOut}</p>}
+        </div>
+        <div>
+          <div className="flex flex-col gap-2 mb-2">
+            <TextInput placeholder="texto plano" value={verifyPass} onChange={e=>setVerifyPass(e.target.value)} />
+            <TextInput placeholder="hash bcrypt" value={verifyHash} onChange={e=>setVerifyHash(e.target.value)} className="font-mono text-[11.5px]"/>
+          </div>
+          <Button size="sm" variant="cyan" onClick={doVerify} disabled={!bcryptReady}>Verificar</Button>
+          {verifyResult !== null && (
+            <p className={"mt-2 text-[12px] font-mono " + (verifyResult ? 'text-ok' : 'text-bad')}>
+              {verifyResult ? '✓ coincide' : '✗ no coincide'}
+            </p>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function SystemStatusCard() {
+  const app = useApp();
+  const { serverStatus, dbStatus, latency, detectedPort, baseUrl, setBaseUrl, ping } = app;
+  const [editUrl, setEditUrl] = useState(baseUrl);
+  const [clock, setClock] = useState(new Date());
+  useEffect(() => { const iv = setInterval(()=>setClock(new Date()), 1000); return ()=>clearInterval(iv); }, []);
+
+  const applyUrl = () => setBaseUrl(editUrl.trim().replace(/\/$/,''));
+
+  const rows = [
+    { label:'Estado del servidor', value: serverStatus==='online'?'En línea':serverStatus==='offline'?'Sin conexión':'Verificando…', tone: serverStatus },
+    { label:'Puerto activo', value: detectedPort || '—', tone:'neutral' },
+    { label:'Base de datos', value: dbStatus==='online'?'Conectada':dbStatus==='offline'?'Desconectada':'Verificando…', tone: dbStatus },
+    { label:'Latencia', value: latency!=null ? (latency+' ms') : '—', tone:'neutral' },
+  ];
+
+  return (
+    <Card className="lg:col-span-2" title="Estado del sistema" icon="server"
+      headerRight={<Button size="sm" variant="ghost" onClick={()=>ping(true)}><Icon name="refresh" className="w-3.5 h-3.5"/> Refrescar</Button>}>
+      <div className="grid sm:grid-cols-4 gap-3 mb-5">
+        {rows.map((r,i) => (
+          <div key={i} className="rounded-lg border border-base-border bg-base-alt/50 px-3.5 py-3">
+            <p className="text-[10.5px] font-mono uppercase tracking-wide text-ink-faint mb-1.5 flex items-center gap-1.5">
+              {(r.tone==='online'||r.tone==='offline'||r.tone==='checking') && <StatusDot state={r.tone} size={6}/>}
+              {r.label}
+            </p>
+            <p className="text-[15px] font-display font-semibold text-ink">{r.value}</p>
+          </div>
+        ))}
+      </div>
+      <Field label="URL base de la API">
+        <div className="flex gap-2">
+          <TextInput value={editUrl} onChange={e=>setEditUrl(e.target.value)} onKeyDown={e=>e.key==='Enter'&&applyUrl()} className="font-mono text-[12.5px]"/>
+          <Button size="md" variant="subtle" onClick={applyUrl}>Aplicar</Button>
+        </div>
+      </Field>
+      <p className="text-[11px] text-ink-faint font-mono mt-2">
+        Reloj local: {clock.toLocaleTimeString('es-BO',{hour12:false})} · el estado se verifica cada 9s consultando <code>GET /catalogo</code>.
+      </p>
+    </Card>
+  );
+}
+
+function SessionMiniCard() {
+  const { currentUser } = useApp();
+  return (
+    <Card title="Sesión actual" icon="users">
+      {currentUser ? (
+        <div className="space-y-2">
+          <p className="text-[20px] font-display font-semibold text-ink">{currentUser.usuario}</p>
+          <Pill tone="indigo">{currentUser.rol}</Pill>
+          <p className="text-[11px] font-mono text-ink-faint pt-1">ID interno #{currentUser.sub}</p>
+        </div>
+      ) : (
+        <EmptyState icon="key" text="Sin autenticar — usa el panel de la derecha"/>
+      )}
+    </Card>
+  );
+}
+
+function ConsoleCard() {
+  const { logs, clearLogs } = useApp();
+  const [filter, setFilter] = useState('all');
+  const bottomRef = useRef(null);
+  const [autoscroll, setAutoscroll] = useState(true);
+
+  useEffect(() => { if (autoscroll && bottomRef.current) bottomRef.current.scrollIntoView({ block:'end' }); }, [logs, autoscroll]);
+
+  const filtered = logs.filter(l => filter==='all' ? true : l.level===filter);
+  const levelColor = { success:'text-ok', error:'text-bad', info:'text-cyanx-bright' };
+  const levelTag = { success:'OK', error:'ERR', info:'INFO' };
+
+  return (
+    <Card title="Consola de actividad" icon="terminal"
+      badge={<Pill tone="neutral">{logs.length} eventos</Pill>}
+      headerRight={
+        <div className="flex items-center gap-1.5">
+          {['all','success','error'].map(f => (
+            <button key={f} onClick={()=>setFilter(f)}
+              className={"px-2 py-1 rounded-md text-[10.5px] font-mono border " + (filter===f ? "border-cyanx/50 text-cyanx-bright bg-cyanx/10" : "border-base-border text-ink-faint hover:text-ink")}>
+              {f==='all'?'todo':f==='success'?'ok':'error'}
+            </button>
+          ))}
+          <Button size="sm" variant="ghost" onClick={clearLogs}>Limpiar</Button>
+        </div>
+      }>
+      <p className="text-[11px] text-ink-faint font-mono -mt-1 mb-3">
+        Registro en vivo de las peticiones del frontend hacia tu API Express (no es stdout del proceso Node —
+        el backend no expone un socket de logs; esta consola refleja cada request/response en tiempo real).
+      </p>
+      <div
+        onScroll={e => {
+          const el = e.target;
+          setAutoscroll(el.scrollHeight - el.scrollTop - el.clientHeight < 24);
+        }}
+        className="rounded-lg border border-base-border bg-[#04050d] px-3.5 py-3 h-64 overflow-y-auto font-mono text-[12px] leading-relaxed">
+        {filtered.length === 0 && <p className="text-ink-faint">$ esperando actividad<span className="caret"></span></p>}
+        {filtered.map(l => (
+          <div key={l.id} className="flex gap-2 whitespace-pre-wrap break-all">
+            <span className="text-ink-faint shrink-0">[{fmtTime(l.time)}]</span>
+            <span className={"shrink-0 " + (levelColor[l.level]||'text-ink-dim')}>{levelTag[l.level]||'—'}</span>
+            {l.method && <span className="text-indigo-bright shrink-0">{l.method}</span>}
+            {l.path && <span className="text-ink-dim shrink-0">{l.path}</span>}
+            {l.status!=null && <span className="text-ink-faint shrink-0">{l.status}</span>}
+            {l.duration!=null && <span className="text-ink-faint shrink-0">{l.duration}ms</span>}
+            <span className="text-ink-faint">{l.message}</span>
+          </div>
+        ))}
+        <div ref={bottomRef}/>
+      </div>
+    </Card>
+  );
+}
+
+function DashboardView() {
+  return (
+    <div className="space-y-5">
+      <div className="grid lg:grid-cols-3 gap-5">
+        <SystemStatusCard/>
+        <SessionMiniCard/>
+      </div>
+      <div className="grid lg:grid-cols-2 gap-5 items-start">
+        <EnvCard/>
+        <AuthBcryptCard/>
+      </div>
+      <ConsoleCard/>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Bloqueo de acceso / requisitos de rol                             */
+/* ---------------------------------------------------------------- */
+
+function RequireAuth({ roles, onNavigate, children }) {
+  const { currentUser } = useApp();
+  if (!currentUser) {
+    return (
+      <Card title="Se requiere iniciar sesión" icon="key">
+        <p className="text-[13px] text-ink-dim mb-4">Este módulo consulta datos protegidos de la API. Autentícate desde el panel de <b>Autenticación · bcrypt</b> en el Dashboard.</p>
+        <Button size="sm" onClick={()=>onNavigate('dashboard')}>Ir al Dashboard</Button>
+      </Card>
+    );
+  }
+  if (roles && !roleAllowed(currentUser, roles)) {
+    return (
+      <Card title="Acceso restringido" icon="key">
+        <p className="text-[13px] text-ink-dim">Tu rol (<span className="text-cyanx-bright font-mono">{currentUser.rol}</span>) no tiene permiso para ver este módulo.</p>
+        <p className="text-[12px] text-ink-faint font-mono mt-2">Roles permitidos: {roles.join(', ')}</p>
+      </Card>
+    );
+  }
+  return children;
+}
+
+/* ---------------------------------------------------------------- */
+/* Vista: Catálogo (pública)                                         */
+/* ---------------------------------------------------------------- */
+
+function CatalogoView() {
+  const { api } = useApp();
+  const [q, setQ] = useState('');
+  const [items, setItems] = useState([]);
+  const [filtros, setFiltros] = useState({ principios:[], laboratorios:[], acciones:[] });
+  const [lab, setLab] = useState(''); const [accion, setAccion] = useState(''); const [principio, setPrincipio] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams({ q, laboratorio:lab, accion, principio_activo:principio });
+    const r = await api('GET', '/catalogo?' + params.toString(), null, { noAuth:true });
+    if (r.ok) { setItems(r.medicamentos||[]); setFiltros(r.filtros||filtros); }
+    setLoading(false);
+  }, [api, q, lab, accion, principio]);
+
+  useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [load]);
+
+  return (
+    <div className="space-y-5">
+      <Card title="Catálogo público" icon="list" badge={<Pill tone="neutral">sin autenticación</Pill>}>
+        <div className="grid sm:grid-cols-4 gap-3 mb-2">
+          <div className="sm:col-span-2 relative">
+            <Icon name="search" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint"/>
+            <TextInput placeholder="Buscar por nombre, síntoma, principio activo…" value={q} onChange={e=>setQ(e.target.value)} className="pl-9"/>
+          </div>
+          <Select value={lab} onChange={e=>setLab(e.target.value)}>
+            <option value="">Laboratorio (todos)</option>
+            {filtros.laboratorios?.map((l,i) => <option key={i} value={l.laboratorio}>{l.laboratorio}</option>)}
+          </Select>
+          <Select value={principio} onChange={e=>setPrincipio(e.target.value)}>
+            <option value="">Principio activo (todos)</option>
+            {filtros.principios?.map((p,i) => <option key={i} value={p.principio_activo}>{p.principio_activo}</option>)}
+          </Select>
+        </div>
+      </Card>
+
+      <Card title={"Resultados (" + items.length + ")"} icon="capsule">
+        {loading ? <EmptyState icon="refresh" text="Consultando catálogo…"/> :
+         items.length === 0 ? <EmptyState icon="search" text="Sin resultados — ajusta la búsqueda o filtros."/> :
+        <div className="overflow-x-auto -mx-5">
+          <table className="w-full min-w-[640px]">
+            <thead><tr className="border-b border-base-border"><Th>Producto</Th><Th>Principio activo</Th><Th>Laboratorio</Th><Th>Presentación</Th><Th className="text-right">Precio</Th><Th className="text-right">Stock</Th></tr></thead>
+            <tbody className="divide-y divide-base-border/70">
+              {items.map(m => (
+                <tr key={m.id} className="hover:bg-base-alt/40">
+                  <Td className="font-medium">{m.nombre_comercial}<div className="text-[11px] text-ink-faint font-mono">{m.categoria||'—'}</div></Td>
+                  <Td className="text-ink-dim">{m.principio_activo}</Td>
+                  <Td className="text-ink-dim font-mono text-[12px]">{m.laboratorio}</Td>
+                  <Td className="text-ink-dim">{m.presentacion}</Td>
+                  <Td className="text-right font-mono text-cyanx-bright">{fmtMoney(m.precio)}</Td>
+                  <Td className="text-right"><Pill tone={m.stock>0?'ok':'bad'}>{m.stock}</Pill></Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      </Card>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Vista: Medicamentos                                                */
+/* ---------------------------------------------------------------- */
+
+function MedicamentoModal({ initial, categorias, onClose, onSaved }) {
+  const { api } = useApp();
+  const [form, setForm] = useState(initial || {
+    nombre_comercial:'', principio_activo:'', laboratorio:'', categoria_id:'', presentacion:'',
+    precio:'', stock_minimo:'', requiere_receta:false, sintoma:'', accion_terapeutica:''
+  });
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async () => {
+    setBusy(true); setErr('');
+    const r = await api('POST', '/medicamentos', form);
+    setBusy(false);
+    if (r.ok) onSaved(); else setErr(r.mensaje || 'No se pudo guardar.');
+  };
+
+  return (
+    <Modal title={initial ? 'Editar medicamento' : 'Registrar medicamento'} onClose={onClose} wide>
+      <div className="grid sm:grid-cols-2 gap-3.5">
+        <Field label="Nombre comercial" required><TextInput value={form.nombre_comercial} onChange={e=>set('nombre_comercial',e.target.value)}/></Field>
+        <Field label="Principio activo"><TextInput value={form.principio_activo} onChange={e=>set('principio_activo',e.target.value)}/></Field>
+        <Field label="Laboratorio"><TextInput value={form.laboratorio} onChange={e=>set('laboratorio',e.target.value)}/></Field>
+        <Field label="Categoría">
+          <Select value={form.categoria_id||''} onChange={e=>set('categoria_id',e.target.value)}>
+            <option value="">Sin categoría</option>
+            {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </Select>
+        </Field>
+        <Field label="Presentación"><TextInput value={form.presentacion} onChange={e=>set('presentacion',e.target.value)}/></Field>
+        <Field label="Precio (Bs)" required><TextInput type="number" step="0.01" value={form.precio} onChange={e=>set('precio',e.target.value)}/></Field>
+        <Field label="Stock mínimo"><TextInput type="number" value={form.stock_minimo} onChange={e=>set('stock_minimo',e.target.value)}/></Field>
+        <Field label="Requiere receta">
+          <label className="flex items-center gap-2 h-[38px] text-[13px] text-ink-dim">
+            <input type="checkbox" checked={!!form.requiere_receta} onChange={e=>set('requiere_receta',e.target.checked)} className="w-4 h-4 accent-indigo"/> Sí, requiere receta médica
+          </label>
+        </Field>
+        <Field label="Síntoma / indicación" className="sm:col-span-2"><TextInput value={form.sintoma} onChange={e=>set('sintoma',e.target.value)}/></Field>
+        <Field label="Acción terapéutica" className="sm:col-span-2"><TextInput value={form.accion_terapeutica} onChange={e=>set('accion_terapeutica',e.target.value)}/></Field>
+      </div>
+      {err && <p className="text-bad text-[12.5px] font-mono mt-3">{err}</p>}
+      <div className="flex justify-end gap-2 mt-5">
+        <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+        <Button onClick={submit} disabled={busy}>{busy?'Guardando…':'Guardar'}</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function MedicamentosViewInner() {
+  const { api, currentUser } = useApp();
+  const [q, setQ] = useState(''); const [page, setPage] = useState(1);
+  const [data, setData] = useState({ medicamentos:[], filtros:{categorias:[]}, paginacion:{page:1,totalPages:1} });
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null); // null | 'new' | medicamento obj
+  const canManage = roleAllowed(currentUser, [ROLE_ADMIN, ROLE_REGENTE]);
+  const canDelete = roleAllowed(currentUser, [ROLE_ADMIN]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams({ q, page: String(page) });
+    const r = await api('GET', '/medicamentos?' + params.toString());
+    if (r.ok) setData(r);
+    setLoading(false);
+  }, [api, q, page]);
+
+  useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+
+  const inactivar = async (id) => {
+    if (!confirm('¿Inactivar este medicamento?')) return;
+    const r = await api('DELETE', '/medicamentos/' + id);
+    if (r.ok) load();
+  };
+
+  const pag = data.paginacion || {};
+
+  return (
+    <div className="space-y-5">
+      <Card title="Medicamentos" icon="capsule"
+        headerRight={canManage && <Button size="sm" onClick={()=>setModal('new')}><Icon name="plus" className="w-3.5 h-3.5"/> Nuevo</Button>}>
+        <div className="relative mb-1">
+          <Icon name="search" className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint"/>
+          <TextInput placeholder="Buscar medicamentos…" value={q} onChange={e=>{setPage(1); setQ(e.target.value);}} className="pl-9"/>
+        </div>
+      </Card>
+
+      <Card>
+        {loading ? <EmptyState icon="refresh" text="Cargando medicamentos…"/> :
+         data.medicamentos.length===0 ? <EmptyState icon="capsule" text="No se encontraron medicamentos."/> :
+        <div className="overflow-x-auto -mx-5">
+          <table className="w-full min-w-[720px]">
+            <thead><tr className="border-b border-base-border"><Th>Producto</Th><Th>Laboratorio</Th><Th>Categoría</Th><Th className="text-right">Precio</Th><Th className="text-right">Stock</Th><Th>Receta</Th><Th></Th></tr></thead>
+            <tbody className="divide-y divide-base-border/70">
+              {data.medicamentos.map(m => (
+                <tr key={m.id} className="hover:bg-base-alt/40">
+                  <Td className="font-medium">{m.nombre_comercial}<div className="text-[11px] text-ink-faint font-mono">{m.principio_activo}</div></Td>
+                  <Td className="text-ink-dim font-mono text-[12px]">{m.laboratorio}</Td>
+                  <Td className="text-ink-dim">{m.categoria||'—'}</Td>
+                  <Td className="text-right font-mono text-cyanx-bright">{fmtMoney(m.precio)}</Td>
+                  <Td className="text-right"><Pill tone={m.stock>Number(m.stock_minimo||0)?'ok':'warn'}>{m.stock}</Pill></Td>
+                  <Td>{m.requiere_receta ? <Pill tone="warn">receta</Pill> : <span className="text-ink-faint text-[12px]">libre</span>}</Td>
+                  <Td>
+                    {canManage && (
+                      <div className="flex justify-end gap-1.5">
+                        <button onClick={()=>setModal(m)} className="w-7 h-7 rounded-md border border-base-border text-ink-faint hover:text-cyanx hover:border-cyanx/40 flex items-center justify-center"><Icon name="edit" className="w-3.5 h-3.5"/></button>
+                        {canDelete && <button onClick={()=>inactivar(m.id)} className="w-7 h-7 rounded-md border border-base-border text-ink-faint hover:text-bad hover:border-bad/40 flex items-center justify-center"><Icon name="trash" className="w-3.5 h-3.5"/></button>}
+                      </div>
+                    )}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+        {pag.totalPages > 1 && (
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-base-border">
+            <span className="text-[11.5px] font-mono text-ink-faint">página {pag.page} de {pag.totalPages} · {pag.totalRows} resultados</span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="ghost" disabled={pag.page<=1} onClick={()=>setPage(p=>p-1)}>Anterior</Button>
+              <Button size="sm" variant="ghost" disabled={pag.page>=pag.totalPages} onClick={()=>setPage(p=>p+1)}>Siguiente</Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {modal && (
+        <MedicamentoModal
+          initial={modal==='new'? null : modal}
+          categorias={data.filtros.categorias||[]}
+          onClose={()=>setModal(null)}
+          onSaved={()=>{ setModal(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+function MedicamentosView({ onNavigate }){ return <RequireAuth onNavigate={onNavigate}><MedicamentosViewInner/></RequireAuth>; }
+
+/* ---------------------------------------------------------------- */
+/* Vista: Categorías                                                  */
+/* ---------------------------------------------------------------- */
+
+function CategoriasViewInner() {
+  const { api } = useApp();
+  const [cats, setCats] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [nombre, setNombre] = useState('');
+  const [parent, setParent] = useState('');
+  const [err, setErr] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await api('GET', '/categorias');
+    if (r.ok) setCats(r.categorias||[]);
+    setLoading(false);
+  }, [api]);
+  useEffect(() => { load(); }, [load]);
+
+  const crear = async () => {
+    setErr('');
+    if (!nombre.trim()) return;
+    const r = await api('POST', '/categorias', { nombre, parent_id: parent || null });
+    if (r.ok) { setNombre(''); setParent(''); load(); } else setErr(r.mensaje || 'No se pudo crear.');
+  };
+  const eliminar = async (id) => {
+    if (!confirm('¿Eliminar esta categoría?')) return;
+    const r = await api('DELETE', '/categorias/' + id);
+    if (r.ok) load(); else alert(r.mensaje);
+  };
+
+  return (
+    <div className="space-y-5">
+      <Card title="Nueva categoría" icon="folder">
+        <div className="grid sm:grid-cols-[1fr_1fr_auto] gap-3">
+          <TextInput placeholder="Nombre de la categoría" value={nombre} onChange={e=>setNombre(e.target.value)}/>
+          <Select value={parent} onChange={e=>setParent(e.target.value)}>
+            <option value="">Sin categoría padre (raíz)</option>
+            {cats.filter(c=>!c.parent_id).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </Select>
+          <Button onClick={crear}><Icon name="plus" className="w-3.5 h-3.5"/> Crear</Button>
+        </div>
+        {err && <p className="text-bad text-[12.5px] font-mono mt-2">{err}</p>}
+      </Card>
+
+      <Card title="Categorías registradas" icon="folder">
+        {loading ? <EmptyState icon="refresh" text="Cargando categorías…"/> :
+         cats.length===0 ? <EmptyState icon="folder" text="Sin categorías todavía."/> :
+        <div className="overflow-x-auto -mx-5">
+          <table className="w-full min-w-[520px]">
+            <thead><tr className="border-b border-base-border"><Th>Nombre</Th><Th>Categoría padre</Th><Th className="text-right">Medicamentos</Th><Th></Th></tr></thead>
+            <tbody className="divide-y divide-base-border/70">
+              {cats.map(c => (
+                <tr key={c.id} className="hover:bg-base-alt/40">
+                  <Td className="font-medium">{c.padre && <span className="text-ink-faint">↳ </span>}{c.nombre}</Td>
+                  <Td className="text-ink-dim">{c.padre || '—'}</Td>
+                  <Td className="text-right"><Pill tone={c.meds>0?'indigo':'neutral'}>{c.meds}</Pill></Td>
+                  <Td className="text-right">
+                    <button onClick={()=>eliminar(c.id)} className="w-7 h-7 rounded-md border border-base-border text-ink-faint hover:text-bad hover:border-bad/40 inline-flex items-center justify-center"><Icon name="trash" className="w-3.5 h-3.5"/></button>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      </Card>
+    </div>
+  );
+}
+function CategoriasView({ onNavigate }){ return <RequireAuth roles={[ROLE_ADMIN,ROLE_REGENTE]} onNavigate={onNavigate}><CategoriasViewInner/></RequireAuth>; }
+
+/* ---------------------------------------------------------------- */
+/* Vista: Lotes e inventario                                         */
+/* ---------------------------------------------------------------- */
+
+function LotesViewInner() {
+  const { api } = useApp();
+  const [data, setData] = useState({ medicamentos:[], proveedores:[], lotes:[] });
+  const [movs, setMovs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('lotes');
+  const [ingreso, setIngreso] = useState({ medicamento_id:'', proveedor_id:'', numero_lote:'', fecha_ingreso:'', fecha_vencimiento:'', cantidad:'', costo_unitario:'' });
+  const [devol, setDevol] = useState({ lote_id:'', cantidad_devolucion:'', referencia:'' });
+  const [err, setErr] = useState('');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [r1, r2] = await Promise.all([api('GET','/lotes'), api('GET','/lotes/movimientos')]);
+    if (r1.ok) setData(r1);
+    if (r2.ok) setMovs(r2.movimientos||[]);
+    setLoading(false);
+  }, [api]);
+  useEffect(() => { load(); }, [load]);
+
+  const submitIngreso = async () => {
+    setErr('');
+    const r = await api('POST', '/lotes/ingreso', ingreso);
+    if (r.ok) { setIngreso({ medicamento_id:'', proveedor_id:'', numero_lote:'', fecha_ingreso:'', fecha_vencimiento:'', cantidad:'', costo_unitario:'' }); load(); }
+    else setErr(r.mensaje || 'No se pudo registrar el ingreso.');
+  };
+  const submitDevol = async () => {
+    setErr('');
+    const r = await api('POST', '/lotes/devolucion', devol);
+    if (r.ok) { setDevol({ lote_id:'', cantidad_devolucion:'', referencia:'' }); load(); }
+    else setErr(r.mensaje || 'No se pudo registrar la devolución.');
+  };
+
+  const diasTone = (d) => d==null ? 'neutral' : d<0 ? 'bad' : d<=30 ? 'warn' : 'ok';
+
+  return (
+    <div className="space-y-5">
+      <div className="grid lg:grid-cols-2 gap-5">
+        <Card title="Ingreso de lote" icon="box">
+          <div className="grid grid-cols-2 gap-3">
+            <Select className="col-span-2" value={ingreso.medicamento_id} onChange={e=>setIngreso({...ingreso, medicamento_id:e.target.value})}>
+              <option value="">Medicamento…</option>
+              {data.medicamentos.map(m => <option key={m.id} value={m.id}>{m.nombre_comercial}</option>)}
+            </Select>
+            <Select value={ingreso.proveedor_id} onChange={e=>setIngreso({...ingreso, proveedor_id:e.target.value})}>
+              <option value="">Proveedor (opcional)</option>
+              {data.proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </Select>
+            <TextInput placeholder="N° de lote" value={ingreso.numero_lote} onChange={e=>setIngreso({...ingreso, numero_lote:e.target.value})}/>
+            <Field label="Fecha de ingreso"><TextInput type="date" value={ingreso.fecha_ingreso} onChange={e=>setIngreso({...ingreso, fecha_ingreso:e.target.value})}/></Field>
+            <Field label="Fecha de vencimiento"><TextInput type="date" value={ingreso.fecha_vencimiento} onChange={e=>setIngreso({...ingreso, fecha_vencimiento:e.target.value})}/></Field>
+            <TextInput placeholder="Cantidad" type="number" value={ingreso.cantidad} onChange={e=>setIngreso({...ingreso, cantidad:e.target.value})}/>
+            <TextInput placeholder="Costo unitario (Bs)" type="number" step="0.01" value={ingreso.costo_unitario} onChange={e=>setIngreso({...ingreso, costo_unitario:e.target.value})}/>
+          </div>
+          <Button size="sm" className="mt-3" onClick={submitIngreso}>Registrar ingreso</Button>
+        </Card>
+
+        <Card title="Devolución a laboratorio" icon="undo">
+          <div className="grid grid-cols-2 gap-3">
+            <Select className="col-span-2" value={devol.lote_id} onChange={e=>setDevol({...devol, lote_id:e.target.value})}>
+              <option value="">Lote…</option>
+              {data.lotes.map(l => <option key={l.id} value={l.id}>{l.numero_lote} · {l.nombre_comercial} ({l.cantidad} u.)</option>)}
+            </Select>
+            <TextInput placeholder="Cantidad a devolver" type="number" value={devol.cantidad_devolucion} onChange={e=>setDevol({...devol, cantidad_devolucion:e.target.value})}/>
+            <TextInput placeholder="Referencia (opcional)" value={devol.referencia} onChange={e=>setDevol({...devol, referencia:e.target.value})}/>
+          </div>
+          <Button size="sm" variant="cyan" className="mt-3" onClick={submitDevol}>Registrar devolución</Button>
+        </Card>
+      </div>
+      {err && <p className="text-bad text-[12.5px] font-mono">{err}</p>}
+
+      <Card>
+        <div className="flex gap-2 mb-4">
+          <Button size="sm" variant={tab==='lotes'?'primary':'subtle'} onClick={()=>setTab('lotes')}>Lotes ({data.lotes.length})</Button>
+          <Button size="sm" variant={tab==='movs'?'primary':'subtle'} onClick={()=>setTab('movs')}>Movimientos recientes</Button>
+        </div>
+        {loading ? <EmptyState icon="refresh" text="Cargando inventario…"/> : tab==='lotes' ? (
+          data.lotes.length===0 ? <EmptyState icon="box" text="No hay lotes registrados."/> :
+          <div className="overflow-x-auto -mx-5">
+            <table className="w-full min-w-[720px]">
+              <thead><tr className="border-b border-base-border"><Th>Lote</Th><Th>Medicamento</Th><Th>Proveedor</Th><Th>Vence</Th><Th className="text-right">Días</Th><Th className="text-right">Cantidad</Th></tr></thead>
+              <tbody className="divide-y divide-base-border/70">
+                {data.lotes.map(l => (
+                  <tr key={l.id} className="hover:bg-base-alt/40">
+                    <Td className="font-mono text-[12px]">{l.numero_lote}</Td>
+                    <Td className="font-medium">{l.nombre_comercial}</Td>
+                    <Td className="text-ink-dim">{l.proveedor||'—'}</Td>
+                    <Td className="text-ink-dim">{fmtDate(l.fecha_vencimiento)}</Td>
+                    <Td className="text-right"><Pill tone={diasTone(l.dias)}>{l.dias}</Pill></Td>
+                    <Td className="text-right font-mono">{l.cantidad}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          movs.length===0 ? <EmptyState icon="box" text="Sin movimientos recientes."/> :
+          <div className="overflow-x-auto -mx-5">
+            <table className="w-full min-w-[640px]">
+              <thead><tr className="border-b border-base-border"><Th>Tipo</Th><Th>Lote</Th><Th>Medicamento</Th><Th className="text-right">Cantidad</Th><Th>Referencia</Th></tr></thead>
+              <tbody className="divide-y divide-base-border/70">
+                {movs.map(m => (
+                  <tr key={m.id} className="hover:bg-base-alt/40">
+                    <Td><Pill tone={m.tipo==='INGRESO'?'ok':m.tipo==='VENTA'?'indigo':'warn'}>{m.tipo}</Pill></Td>
+                    <Td className="font-mono text-[12px]">{m.numero_lote}</Td>
+                    <Td className="text-ink-dim">{m.nombre_comercial}</Td>
+                    <Td className="text-right font-mono">{m.cantidad}</Td>
+                    <Td className="text-ink-faint text-[12px]">{m.referencia}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+function LotesView({ onNavigate }){ return <RequireAuth roles={[ROLE_ADMIN,ROLE_REGENTE]} onNavigate={onNavigate}><LotesViewInner/></RequireAuth>; }
+
+/* ---------------------------------------------------------------- */
+/* Vista: Ventas                                                      */
+/* ---------------------------------------------------------------- */
+
+function VentasViewInner() {
+  const { api } = useApp();
+  const [data, setData] = useState({ medicamentos:[], ultimas_ventas:[] });
+  const [loading, setLoading] = useState(true);
+  const [medId, setMedId] = useState('');
+  const [cantidad, setCantidad] = useState(1);
+  const [receta, setReceta] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await api('GET', '/ventas/datos');
+    if (r.ok) setData(r);
+    setLoading(false);
+  }, [api]);
+  useEffect(() => { load(); }, [load]);
+
+  const selected = data.medicamentos.find(m => String(m.id)===String(medId));
+
+  const registrar = async () => {
+    setBusy(true); setMsg(null);
+    const r = await api('POST', '/ventas', { medicamento_id: medId, cantidad, receta });
+    setBusy(false);
+    setMsg(r);
+    if (r.ok) { setMedId(''); setCantidad(1); setReceta(false); load(); }
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="grid lg:grid-cols-[1.1fr_1fr] gap-5 items-start">
+        <Card title="Registrar venta" icon="coin">
+          <div className="space-y-3.5">
+            <Field label="Medicamento" required>
+              <Select value={medId} onChange={e=>setMedId(e.target.value)}>
+                <option value="">Selecciona un producto…</option>
+                {data.medicamentos.map(m => <option key={m.id} value={m.id} disabled={m.stock<=0}>{m.nombre_comercial} — {fmtMoney(m.precio)} ({m.stock} disp.)</option>)}
+              </Select>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Cantidad"><TextInput type="number" min="1" value={cantidad} onChange={e=>setCantidad(e.target.value)}/></Field>
+              <Field label="Total estimado">
+                <div className="h-[38px] flex items-center font-mono text-cyanx-bright text-[14px]">
+                  {selected ? fmtMoney(selected.precio * (Number(cantidad)||0)) : '—'}
+                </div>
+              </Field>
+            </div>
+            {selected && selected.requiere_receta && (
+              <label className="flex items-center gap-2 text-[13px] text-warn">
+                <input type="checkbox" checked={receta} onChange={e=>setReceta(e.target.checked)} className="w-4 h-4 accent-indigo"/>
+                Este producto requiere receta médica — confirmo que fue presentada
+              </label>
+            )}
+            <Button onClick={registrar} disabled={busy || !medId}>{busy ? 'Procesando…' : 'Registrar venta'}</Button>
+            {msg && (
+              <p className={"text-[12.5px] font-mono " + (msg.ok ? 'text-ok' : 'text-bad')}>{msg.mensaje}</p>
+            )}
+          </div>
+        </Card>
+
+        <Card title="Últimas ventas" icon="chart">
+          {loading ? <EmptyState icon="refresh" text="Cargando…"/> :
+           data.ultimas_ventas.length===0 ? <EmptyState icon="coin" text="Aún no hay ventas registradas."/> :
+          <ul className="space-y-2">
+            {data.ultimas_ventas.map(v => (
+              <li key={v.id} className="flex items-center justify-between rounded-lg border border-base-border bg-base-alt/40 px-3 py-2.5">
+                <div>
+                  <p className="text-[13px] text-ink font-medium">Venta #{v.id}</p>
+                  <p className="text-[11px] text-ink-faint font-mono">{v.usuario} · {fmtDate(v.fecha)}</p>
+                </div>
+                <span className="font-mono text-cyanx-bright text-[13.5px]">{fmtMoney(v.total)}</span>
+              </li>
+            ))}
+          </ul>}
+        </Card>
+      </div>
+    </div>
+  );
+}
+function VentasView({ onNavigate }){ return <RequireAuth onNavigate={onNavigate}><VentasViewInner/></RequireAuth>; }
+
+/* ---------------------------------------------------------------- */
+/* Vista: Reportes                                                    */
+/* ---------------------------------------------------------------- */
+
+function LineChart({ labels, values, color }) {
+  const ref = useRef(null); const chartRef = useRef(null);
+  useEffect(() => {
+    if (!ref.current || typeof Chart==='undefined') return;
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(ref.current, {
+      type:'line',
+      data:{ labels, datasets:[{ data:values, borderColor:color, backgroundColor:color+'22', tension:.35, fill:true, pointRadius:2.5, pointBackgroundColor:color }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+        scales:{ x:{ ticks:{ color:'#8b91b8', font:{ family:'JetBrains Mono', size:10 } }, grid:{ color:'#1d2242' } },
+                 y:{ ticks:{ color:'#8b91b8', font:{ family:'JetBrains Mono', size:10 } }, grid:{ color:'#1d2242' } } } }
+    });
+    return () => chartRef.current && chartRef.current.destroy();
+  }, [JSON.stringify(labels), JSON.stringify(values)]);
+  return <canvas ref={ref} height="180"></canvas>;
+}
+function BarChart({ labels, values, color }) {
+  const ref = useRef(null); const chartRef = useRef(null);
+  useEffect(() => {
+    if (!ref.current || typeof Chart==='undefined') return;
+    if (chartRef.current) chartRef.current.destroy();
+    chartRef.current = new Chart(ref.current, {
+      type:'bar',
+      data:{ labels, datasets:[{ data:values, backgroundColor:color, borderRadius:4, maxBarThickness:26 }] },
+      options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+        scales:{ x:{ ticks:{ color:'#8b91b8', font:{ family:'JetBrains Mono', size:10 } }, grid:{ color:'#1d2242' } },
+                 y:{ ticks:{ color:'#c7cbe6', font:{ family:'JetBrains Mono', size:10.5 } }, grid:{ display:false } } } }
+    });
+    return () => chartRef.current && chartRef.current.destroy();
+  }, [JSON.stringify(labels), JSON.stringify(values)]);
+  return <canvas ref={ref} height="220"></canvas>;
+}
+
+function ReportesViewInner() {
+  const { api } = useApp();
+  const [periodo, setPeriodo] = useState('mensual');
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await api('GET', '/reportes?periodo=' + periodo);
+    if (r.ok) setData(r);
+    setLoading(false);
+  }, [api, periodo]);
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="space-y-5">
+      <Card title="Reportes" icon="chart"
+        headerRight={
+          <div className="flex gap-1.5">
+            {['diario','semanal','mensual'].map(p => (
+              <button key={p} onClick={()=>setPeriodo(p)}
+                className={"px-3 py-1.5 rounded-md text-[12px] font-mono border " + (periodo===p?"border-indigo/50 bg-indigo/15 text-ink":"border-base-border text-ink-faint hover:text-ink")}>
+                {p}
+              </button>
+            ))}
+          </div>
+        }>
+        {loading || !data ? <EmptyState icon="refresh" text="Calculando reportes…"/> : (
+          <div className="grid sm:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-base-border bg-base-alt/50 px-4 py-3.5">
+              <p className="text-[10.5px] font-mono uppercase tracking-wide text-ink-faint mb-1">Valor de inventario vigente</p>
+              <p className="text-[20px] font-display font-semibold text-cyanx-bright">{fmtMoney(data.valor_inventario)}</p>
+            </div>
+            <div className="rounded-lg border border-base-border bg-base-alt/50 px-4 py-3.5">
+              <p className="text-[10.5px] font-mono uppercase tracking-wide text-ink-faint mb-1">Ventas en el periodo</p>
+              <p className="text-[20px] font-display font-semibold text-ink">{data.ventas_corte.reduce((a,v)=>a+Number(v.operaciones||0),0)}</p>
+            </div>
+            <div className="rounded-lg border border-base-border bg-base-alt/50 px-4 py-3.5">
+              <p className="text-[10.5px] font-mono uppercase tracking-wide text-ink-faint mb-1">Por vencer (90 días)</p>
+              <p className="text-[20px] font-display font-semibold text-warn">{data.proximos_caducar.length}</p>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {data && (
+        <div className="grid lg:grid-cols-2 gap-5">
+          <Card title="Ventas por día" icon="chart">
+            {data.ventas_corte.length===0 ? <EmptyState icon="chart" text="Sin ventas en este periodo."/> :
+              <div style={{height:220}}><LineChart labels={data.ventas_corte.map(v=>fmtDate(v.dia))} values={data.ventas_corte.map(v=>Number(v.total))} color="#22d3ee"/></div>}
+          </Card>
+          <Card title="Productos más vendidos" icon="capsule">
+            {data.productos_top.length===0 ? <EmptyState icon="capsule" text="Sin datos suficientes."/> :
+              <div style={{height:220}}><BarChart labels={data.productos_top.map(p=>p.nombre_comercial)} values={data.productos_top.map(p=>Number(p.unidades))} color="#6366f1"/></div>}
+          </Card>
+        </div>
+      )}
+
+      {data && (
+        <Card title="Próximos a vencer (90 días)" icon="alert">
+          {data.proximos_caducar.length===0 ? <EmptyState icon="check" text="No hay lotes por vencer en los próximos 90 días."/> :
+          <div className="overflow-x-auto -mx-5">
+            <table className="w-full min-w-[560px]">
+              <thead><tr className="border-b border-base-border"><Th>Lote</Th><Th>Medicamento</Th><Th>Vence</Th><Th className="text-right">Días</Th><Th className="text-right">Cantidad</Th></tr></thead>
+              <tbody className="divide-y divide-base-border/70">
+                {data.proximos_caducar.map(l => (
+                  <tr key={l.id} className="hover:bg-base-alt/40">
+                    <Td className="font-mono text-[12px]">{l.numero_lote}</Td>
+                    <Td className="font-medium">{l.nombre_comercial}</Td>
+                    <Td className="text-ink-dim">{fmtDate(l.fecha_vencimiento)}</Td>
+                    <Td className="text-right"><Pill tone={l.dias<=14?'bad':'warn'}>{l.dias}</Pill></Td>
+                    <Td className="text-right font-mono">{l.cantidad}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>}
+        </Card>
+      )}
+    </div>
+  );
+}
+function ReportesView({ onNavigate }){ return <RequireAuth roles={[ROLE_ADMIN,ROLE_REGENTE]} onNavigate={onNavigate}><ReportesViewInner/></RequireAuth>; }
+
+/* ---------------------------------------------------------------- */
+/* Vista: Usuarios (solo Administrador/Gerente)                      */
+/* ---------------------------------------------------------------- */
+
+function UsuarioModal({ initial, roles, onClose, onSaved }) {
+  const { api } = useApp();
+  const [form, setForm] = useState(initial ? { ...initial, password:'' } : { nombre:'', usuario:'', password:'', rol_id:'', activo:true });
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('');
+  const set = (k,v) => setForm(f => ({ ...f, [k]: v }));
+
+  const submit = async () => {
+    setBusy(true); setErr('');
+    const r = await api('POST', '/usuarios', form);
+    setBusy(false);
+    if (r.ok) onSaved(); else setErr(r.mensaje || 'No se pudo guardar.');
+  };
+
+  return (
+    <Modal title={initial ? 'Editar usuario' : 'Nuevo usuario'} onClose={onClose}>
+      <div className="space-y-3.5">
+        <Field label="Nombre completo" required><TextInput value={form.nombre} onChange={e=>set('nombre',e.target.value)}/></Field>
+        <Field label="Usuario (login)" required><TextInput value={form.usuario} onChange={e=>set('usuario',e.target.value)} disabled={!!initial}/></Field>
+        <Field label={initial ? 'Nueva contraseña (opcional)' : 'Contraseña'} required={!initial}>
+          <TextInput type="text" value={form.password} onChange={e=>set('password',e.target.value)} placeholder={initial ? 'dejar en blanco para no cambiar' : ''}/>
+        </Field>
+        <Field label="Rol" required>
+          <Select value={form.rol_id||''} onChange={e=>set('rol_id',e.target.value)}>
+            <option value="">Selecciona un rol…</option>
+            {roles.map(r => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+          </Select>
+        </Field>
+        <label className="flex items-center gap-2 text-[13px] text-ink-dim">
+          <input type="checkbox" checked={!!form.activo} onChange={e=>set('activo',e.target.checked)} className="w-4 h-4 accent-indigo"/> Usuario activo
+        </label>
+      </div>
+      {err && <p className="text-bad text-[12.5px] font-mono mt-3">{err}</p>}
+      <div className="flex justify-end gap-2 mt-5">
+        <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+        <Button onClick={submit} disabled={busy}>{busy?'Guardando…':'Guardar'}</Button>
+      </div>
+    </Modal>
+  );
+}
+
+function UsuariosViewInner() {
+  const { api, currentUser } = useApp();
+  const [roles, setRoles] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const r = await api('GET', '/usuarios');
+    if (r.ok) { setRoles(r.roles||[]); setUsuarios(r.usuarios||[]); }
+    setLoading(false);
+  }, [api]);
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = async (id) => { const r = await api('PATCH', '/usuarios/' + id + '/toggle'); if (r.ok) load(); };
+
+  return (
+    <div className="space-y-5">
+      <Card title="Usuarios del sistema" icon="users"
+        headerRight={<Button size="sm" onClick={()=>setModal('new')}><Icon name="plus" className="w-3.5 h-3.5"/> Nuevo usuario</Button>}>
+        {loading ? <EmptyState icon="refresh" text="Cargando usuarios…"/> :
+        <div className="overflow-x-auto -mx-5">
+          <table className="w-full min-w-[600px]">
+            <thead><tr className="border-b border-base-border"><Th>Nombre</Th><Th>Usuario</Th><Th>Rol</Th><Th>Estado</Th><Th></Th></tr></thead>
+            <tbody className="divide-y divide-base-border/70">
+              {usuarios.map(u => (
+                <tr key={u.id} className="hover:bg-base-alt/40">
+                  <Td className="font-medium">{u.nombre}{u.id===currentUser?.sub && <span className="text-[10.5px] text-cyanx-bright font-mono ml-1.5">(tú)</span>}</Td>
+                  <Td className="font-mono text-[12.5px] text-ink-dim">{u.usuario}</Td>
+                  <Td>{u.rol}</Td>
+                  <Td><Pill tone={u.activo?'ok':'bad'}>{u.activo?'activo':'inactivo'}</Pill></Td>
+                  <Td>
+                    <div className="flex justify-end gap-1.5">
+                      <button onClick={()=>setModal(u)} className="w-7 h-7 rounded-md border border-base-border text-ink-faint hover:text-cyanx hover:border-cyanx/40 flex items-center justify-center"><Icon name="edit" className="w-3.5 h-3.5"/></button>
+                      <button onClick={()=>toggle(u.id)} className="w-7 h-7 rounded-md border border-base-border text-ink-faint hover:text-warn hover:border-warn/40 flex items-center justify-center" title="Activar / desactivar"><Icon name="key" className="w-3.5 h-3.5"/></button>
+                    </div>
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>}
+      </Card>
+      {modal && (
+        <UsuarioModal
+          initial={modal==='new'? null : modal}
+          roles={roles}
+          onClose={()=>setModal(null)}
+          onSaved={()=>{ setModal(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+function UsuariosView({ onNavigate }){ return <RequireAuth roles={[ROLE_ADMIN]} onNavigate={onNavigate}><UsuariosViewInner/></RequireAuth>; }
+
+/* ---------------------------------------------------------------- */
+/* App raíz                                                           */
+/* ---------------------------------------------------------------- */
+
+const VIEW_TITLES = {
+  dashboard:['Dashboard','Estado del sistema, entorno y autenticación'],
+  catalogo:['Catálogo','Vista pública de medicamentos disponibles'],
+  medicamentos:['Medicamentos','Gestión del inventario de productos'],
+  categorias:['Categorías','Organización jerárquica de medicamentos'],
+  lotes:['Lotes e inventario','Ingresos, devoluciones y trazabilidad FEFO'],
+  ventas:['Ventas','Punto de venta y aplicación de FEFO'],
+  reportes:['Reportes','Ventas, inventario y vencimientos'],
+  usuarios:['Usuarios','Cuentas y roles de acceso'],
+};
+
+function App() {
+  const state = useAppState();
+  const [view, setView] = useState('dashboard');
+  const [mobileNav, setMobileNav] = useState(false);
+
+  const navigate = (id) => { setView(id); setMobileNav(false); };
+  const [title, subtitle] = VIEW_TITLES[view] || ['',''];
+
+  return (
+    <AppCtx.Provider value={state}>
+      <div className="flex min-h-screen">
+        <Sidebar active={view} onNavigate={navigate} open={mobileNav} onCloseMobile={()=>setMobileNav(false)}/>
+        <div className="flex-1 min-w-0 flex flex-col">
+          <Topbar onMenu={()=>setMobileNav(true)} onNavigate={navigate}/>
+          <main className="flex-1 px-4 sm:px-6 py-6 max-w-[1400px] w-full mx-auto">
+            <div className="mb-5">
+              <h1 className="font-display font-semibold text-xl text-ink">{title}</h1>
+              <p className="text-[13px] text-ink-faint mt-0.5">{subtitle}</p>
+            </div>
+            {view==='dashboard' && <DashboardView/>}
+            {view==='catalogo' && <CatalogoView/>}
+            {view==='medicamentos' && <MedicamentosView onNavigate={navigate}/>}
+            {view==='categorias' && <CategoriasView onNavigate={navigate}/>}
+            {view==='lotes' && <LotesView onNavigate={navigate}/>}
+            {view==='ventas' && <VentasView onNavigate={navigate}/>}
+            {view==='reportes' && <ReportesView onNavigate={navigate}/>}
+            {view==='usuarios' && <UsuariosView onNavigate={navigate}/>}
+          </main>
+          <footer className="px-6 py-4 text-center text-[11px] font-mono text-ink-faint border-t border-base-border">
+            Frontend independiente para tu API Express · farmacia_sistema
+          </footer>
+        </div>
+      </div>
+    </AppCtx.Provider>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App/>);
+</script>
+</body>
+</html>

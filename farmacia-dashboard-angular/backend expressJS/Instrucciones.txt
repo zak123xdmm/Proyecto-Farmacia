@@ -1,0 +1,26 @@
+primero inicar el servidor con el siguiente comando en la terminal
+node index.js
+esto hara que se habra el puerto :happy: asjjda
+
+Descargar Thunder Client xd
+hacer una nueva request con el siguiente enlace 
+http://localhost:3000/api/auth/login ----- en post
+
+en body poner:
+{
+  "usuario": "admin",
+  "password": "admin123"
+}
+
+copiar token y ponerlo en la pestaña de 
+auth -- bearer
+
+entrar a:
+http://localhost:3000/api/ventas ----- en post
+
+en body poner 
+{
+  "medicamento_id": 1,
+  "cantidad": 2,
+  "receta": false
+}

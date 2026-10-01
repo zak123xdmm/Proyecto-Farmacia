@@ -77,18 +77,51 @@ const obtenerMedicamento = async (req, res, next) => {
 const guardarMedicamento = async (req, res, next) => {
   try {
     const id = parseInt(req.body.id || 0);
-    const data = [
-      (req.body.nombre_comercial || "").trim(),
-      (req.body.principio_activo || "").trim(),
-      (req.body.laboratorio || "").trim(),
-      req.body.categoria_id || null,
-      (req.body.presentacion || "").trim(),
-      parseFloat(req.body.precio || 0),
-      parseInt(req.body.stock_minimo || 0),
-      req.body.requiere_receta !== undefined && req.body.requiere_receta !== false && req.body.requiere_receta !== '0' ? 1 : 0,
-      (req.body.sintoma || "").trim(),
-      (req.body.accion_terapeutica || "").trim()
-    ];
+    
+    // Extraemos las variables primero para usarlas en nuestras validaciones
+    const nombre_comercial = (req.body.nombre_comercial || "").trim();
+    const principio_activo = (req.body.principio_activo || "").trim();
+    const laboratorio = (req.body.laboratorio || "").trim();
+    const categoria_id = req.body.categoria_id || null;
+    const presentacion = (req.body.presentacion || "").trim();
+    const precio = parseFloat(req.body.precio || 0);
+    const stock_minimo = parseInt(req.body.stock_minimo || 0);
+    const requiere_receta = req.body.requiere_receta !== undefined && req.body.requiere_receta !== false && req.body.requiere_receta !== '0' ? 1 : 0;
+    const sintoma = (req.body.sintoma || "").trim();
+    const accion_terapeutica = (req.body.accion_terapeutica || "").trim();
+
+    // ÍTEM 1.8: Control de inexistentes (al editar)
+    if (id) {
+      const [existeMed] = await pool.query("SELECT id FROM medicamentos WHERE id = ?", [id]);
+      if (existeMed.length === 0) {
+        return res.status(404).json({ ok: false, mensaje: "El medicamento que intenta editar no existe." });
+      }
+    }
+
+    // ÍTEM 1.6: Validación de categoría
+    if (categoria_id) {
+      const [catRows] = await pool.query("SELECT id FROM categorias WHERE id = ? AND activo = 1", [categoria_id]);
+      if (catRows.length === 0) {
+        return res.status(400).json({ ok: false, mensaje: "La categoría especificada no existe o se encuentra inactiva." });
+      }
+    }
+
+    // ÍTEM 1.7: Control de duplicados (HTTP 409)
+    let dupQuery = "SELECT id FROM medicamentos WHERE nombre_comercial = ? AND presentacion = ? AND laboratorio = ?";
+    let dupParams = [nombre_comercial, presentacion, laboratorio];
+    
+    if (id) {
+      dupQuery += " AND id != ?";
+      dupParams.push(id);
+    }
+    
+    const [duplicados] = await pool.query(dupQuery, dupParams);
+    if (duplicados.length > 0) {
+      return res.status(409).json({ ok: false, mensaje: "Ya existe un medicamento registrado con la misma combinación de nombre, presentación y laboratorio." });
+    }
+
+    // REGISTRO Y ACTUALIZACIÓN
+    const data = [nombre_comercial, principio_activo, laboratorio, categoria_id, presentacion, precio, stock_minimo, requiere_receta, sintoma, accion_terapeutica];
 
     if (id) {
       data.push(id);
@@ -105,7 +138,15 @@ const guardarMedicamento = async (req, res, next) => {
 
 const inactivarMedicamento = async (req, res, next) => {
   try {
-    await pool.query("UPDATE medicamentos SET activo=0 WHERE id=?", [parseInt(req.params.id)]);
+    const id = parseInt(req.params.id);
+    
+    // ÍTEM 1.8: Control de inexistentes (al inactivar)
+    const [existeMed] = await pool.query("SELECT id FROM medicamentos WHERE id = ?", [id]);
+    if (existeMed.length === 0) {
+      return res.status(404).json({ ok: false, mensaje: "El medicamento que intenta inactivar no existe." });
+    }
+
+    await pool.query("UPDATE medicamentos SET activo=0 WHERE id=?", [id]);
     res.json({ ok: true, mensaje: "Medicamento inactivado." });
   } catch (error) {
     next(error);

@@ -27,57 +27,95 @@ const obtenerDatosVenta = async (req, res, next) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// ÍTEM 4: Validación del registro de ventas (punto de venta)
+// ---------------------------------------------------------------------------
+const CANTIDAD_MIN = 1;
+const CANTIDAD_MAX = 100;
+
+// Convierte a entero SOLO si el valor es un entero real (number entero o
+// string compuesto únicamente por dígitos). Cualquier otra cosa devuelve null:
+// 0.5, "abc", "2.5", "", null, true, [], {} ...  (sin conversión silenciosa a 1)
+const aEnteroEstricto = (valor) => {
+  if (typeof valor === "number") {
+    return Number.isInteger(valor) ? valor : null;
+  }
+  if (typeof valor === "string" && /^-?\d+$/.test(valor.trim())) {
+    return parseInt(valor.trim(), 10);
+  }
+  return null;
+};
+
+// Receta estricta: solo cuenta como confirmada si llega true (o "true").
+// "false", 0, 1, "si", "on", null, undefined => NO confirmada.
+const recetaConfirmada = (valor) => valor === true || valor === "true";
+
 const registrarVenta = async (req, res, next) => {
   let conn;
   try {
     const { medicamento_id, cantidad, receta } = req.body;
-    const qty = Math.max(1, parseInt(cantidad) || 1);
-    const medId = parseInt(medicamento_id);
 
-    if (isNaN(medId)) {
-      return res
-        .status(400)
-        .json({
-          ok: false,
-          mensaje: "ID de medicamento inválido o faltante en la petición.",
-        });
+    // 1) ID de medicamento: entero positivo
+    const medId = aEnteroEstricto(medicamento_id);
+    if (medId === null || medId < 1) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "ID de medicamento inválido o faltante en la petición.",
+      });
+    }
+
+    // 2) Cantidad: entero entre 1 y 100 (no se convierte nada a 1)
+    const qty = aEnteroEstricto(cantidad);
+    if (qty === null || qty < CANTIDAD_MIN || qty > CANTIDAD_MAX) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: `La cantidad debe ser un número entero entre ${CANTIDAD_MIN} y ${CANTIDAD_MAX} unidades por operación.`,
+      });
     }
 
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // Validar stock vigente (no vencido)
-    const [vigRows] = await conn.query(
-      "SELECT COALESCE(SUM(cantidad),0) as stockVigente FROM lotes WHERE medicamento_id=? AND cantidad>0 AND fecha_vencimiento>=CURDATE()",
-      [medId],
-    );
-    const stockVigente = parseInt(vigRows[0].stockVigente);
-
+    // 3) Se bloquea PRIMERO el registro del medicamento (FOR UPDATE). Cualquier
+    //    otra venta del mismo medicamento espera aquí hasta que esta termine,
+    //    por lo que el stock se lee ya actualizado.
     const [mRows] = await conn.query(
       "SELECT * FROM medicamentos WHERE id=? AND activo=1 FOR UPDATE",
       [medId],
     );
     const m = mRows[0];
 
-    if (!m || stockVigente < qty) {
+    if (!m) {
       await conn.rollback();
-      return res
-        .status(400)
-        .json({
-          ok: false,
-          mensaje:
-            "Stock insuficiente (solo se cuentan lotes vigentes, no vencidos).",
-        });
+      return res.status(404).json({
+        ok: false,
+        mensaje: "El medicamento no existe o se encuentra inactivo.",
+      });
     }
 
-    if (m.requiere_receta && !receta) {
+    // 4) Receta: los medicamentos con receta exigen confirmación explícita
+    if (m.requiere_receta && !recetaConfirmada(receta)) {
       await conn.rollback();
-      return res
-        .status(400)
-        .json({
-          ok: false,
-          mensaje: "Este medicamento requiere receta médica.",
-        });
+      return res.status(400).json({
+        ok: false,
+        mensaje:
+          "Este medicamento requiere receta médica: confirme explícitamente la receta para continuar.",
+      });
+    }
+
+    // 5) Stock vigente (no vencido) calculado YA con el registro bloqueado
+    const [vigRows] = await conn.query(
+      "SELECT COALESCE(SUM(cantidad),0) as stockVigente FROM lotes WHERE medicamento_id=? AND cantidad>0 AND fecha_vencimiento>=CURDATE()",
+      [medId],
+    );
+    const stockVigente = parseInt(vigRows[0].stockVigente);
+
+    if (stockVigente < qty) {
+      await conn.rollback();
+      return res.status(400).json({
+        ok: false,
+        mensaje: `Stock insuficiente: hay ${stockVigente} unidad(es) disponible(s) y se solicitaron ${qty}.`,
+      });
     }
 
     const [lotesDisp] = await conn.query(

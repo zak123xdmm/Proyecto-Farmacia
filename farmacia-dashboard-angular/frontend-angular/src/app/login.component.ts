@@ -33,10 +33,29 @@ export class LoginComponent {
   private auth = inject(AuthService); private router = inject(Router);
   usuario='admin'; password='admin123'; loading=false; error='';
   submit() {
-    this.loading=true; this.error='';
-    this.auth.login(this.usuario,this.password).subscribe({
-      next: r => { this.loading=false; if(r?.ok) this.router.navigate(['/']); else this.error=r?.mensaje || 'No fue posible iniciar sesión.'; },
-      error: e => { this.loading=false; this.error=e?.error?.mensaje || 'No se pudo conectar con el backend. Verifica node index.js.'; }
+    this.loading = true;
+    this.error = '';
+    this.auth.login(this.usuario, this.password).subscribe({
+      next: r => { 
+        this.loading = false; 
+        if(r?.ok) {
+          this.router.navigate(['/']); 
+        } else {
+          this.error = r?.mensaje || 'No fue posible iniciar sesión.'; 
+        }
+      },
+      error: e => { 
+        this.loading = false; 
+        
+        // Capturamos específicamente el estado 429 para mostrar el bloqueo
+        if (e.status === 429) {
+          this.error = e.error?.mensaje || 'Demasiados intentos. Usuario bloqueado temporalmente.';
+        } else if (e.status === 401) {
+          this.error = e.error?.mensaje || 'Credenciales incorrectas.';
+        } else {
+          this.error = 'No se pudo conectar con el backend. Verifica node index.js.'; 
+        }
+      }
     });
   }
 }

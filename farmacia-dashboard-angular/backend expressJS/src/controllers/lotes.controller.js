@@ -48,6 +48,16 @@ const ingresarLote = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
+    const [loteExistente] = await conn.query(
+      "SELECT id FROM lotes WHERE medicamento_id = ? AND numero_lote = ?",
+      [parseInt(medicamento_id), numero_lote.trim()]
+    );
+
+    if (loteExistente.length > 0) {
+      await conn.rollback();
+      return res.status(409).json({ ok: false, mensaje: 'Este número de lote ya está registrado para este medicamento.' });
+    }
+
     const [loteRes] = await conn.query(
       "INSERT INTO lotes(medicamento_id, proveedor_id, numero_lote, fecha_ingreso, fecha_vencimiento, cantidad, costo_unitario) VALUES(?, ?, ?, ?, ?, ?, ?)",
       [parseInt(medicamento_id), proveedor_id || null, numero_lote.trim(), fecha_ingreso, fecha_vencimiento, qty, parseFloat(costo_unitario)]
@@ -91,7 +101,7 @@ const devolverLote = async (req, res, next) => {
     }
     if (qty < 1 || qty > parseInt(lote.cantidad)) {
       await conn.rollback();
-      return res.status(400).json({ ok: false, mensaje: 'La cantidad a devolver supera el stock disponible del lote.' });
+      return res.status(400).json({ ok: false, mensaje: `La cantidad supera el stock. Solo hay ${lote.cantidad} unidad(es) disponible(s).` });
     }
 
     const ref = 'Devolución a laboratorio' + (referencia ? ' — ' + referencia.trim() : '');

@@ -6,7 +6,12 @@ const bcrypt = require("bcryptjs");
 const listarUsuarios = async (req, res, next) => {
   try {
     const [roles] = await pool.query("SELECT * FROM roles ORDER BY id");
-    const [rows] = await pool.query("SELECT u.*, r.nombre rol FROM usuarios u JOIN roles r ON r.id=u.rol_id ORDER BY u.id DESC");
+    const [rows] = await pool.query(
+      "SELECT u.id, u.nombre, u.usuario, u.activo, u.rol_id, r.nombre rol " +
+      "FROM usuarios u " +
+      "JOIN roles r ON r.id=u.rol_id " +
+      "ORDER BY u.id DESC"
+    );
     res.json({ ok: true, roles, usuarios: rows });
   } catch (error) {
     next(error);
@@ -15,7 +20,10 @@ const listarUsuarios = async (req, res, next) => {
 
 const obtenerUsuario = async (req, res, next) => {
   try {
-    const [rows] = await pool.query("SELECT * FROM usuarios WHERE id=?", [req.params.id]);
+    const [rows] = await pool.query(
+      "SELECT id, nombre, usuario, activo, rol_id FROM usuarios WHERE id=?", 
+      [req.params.id]
+    );
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Usuario no encontrado" });
     res.json({ ok: true, usuario: rows[0] });
   } catch (error) {

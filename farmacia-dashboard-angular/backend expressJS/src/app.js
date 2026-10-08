@@ -23,6 +23,18 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+
+// NUEVO: Manejo uniforme de JSON inválido o malformado
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({ 
+      ok: false, 
+      mensaje: "Los datos enviados no tienen un formato válido (JSON malformado)." 
+    });
+  }
+  next(err);
+});
+
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", routes);

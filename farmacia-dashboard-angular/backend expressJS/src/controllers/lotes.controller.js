@@ -39,8 +39,11 @@ const ingresarLote = async (req, res, next) => {
   try {
     const { medicamento_id, proveedor_id, numero_lote, fecha_ingreso, fecha_vencimiento, cantidad, costo_unitario } = req.body;
     const qty = parseInt(cantidad);
-    
-    if (qty < 1) return res.status(400).json({ ok: false, mensaje: 'La cantidad debe ser mayor a cero.' });
+    const costo = parseFloat(costo_unitario);
+
+    if (qty < 1 || qty > 10000) return res.status(400).json({ ok: false, mensaje: 'La cantidad debe estar entre 1 y 10,000.' });
+    if (costo < 0 || costo > 10000) return res.status(400).json({ ok: false, mensaje: 'El costo unitario excede el límite permitido (10,000).' });
+
     if (new Date(fecha_vencimiento) < new Date(fecha_ingreso)) {
       return res.status(400).json({ ok: false, mensaje: 'La fecha de vencimiento no puede ser anterior al ingreso.' });
     }

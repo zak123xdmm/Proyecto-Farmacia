@@ -16,8 +16,6 @@ import { ApiService } from "./api.service";
       <button class="btn primary" (click)="openForm()">+ Ingresar lote</button>
     </div>
 
-    <div class="toast" *ngIf="toastMessage">{{ toastMessage }}</div>
-
     <section class="panel">
       <div class="panel-head">
         <div><b>Lotes</b><small>Ordenados por vencimiento</small></div>
@@ -26,12 +24,20 @@ import { ApiService } from "./api.service";
         <table>
           <thead>
             <tr>
-              <th>Medicamento</th><th>Lote</th><th>Vencimiento</th><th>Stock</th><th>Costo</th><th>Estado</th><th>Acción</th>
+              <th>Medicamento</th>
+              <th>Proveedor</th>
+              <th>Lote</th>
+              <th>Vencimiento</th>
+              <th>Stock</th>
+              <th>Costo</th>
+              <th>Estado</th>
+              <th>Acción</th>
             </tr>
           </thead>
           <tbody>
             <tr *ngFor="let l of lots">
               <td><b>{{ l.nombre_comercial }}</b></td>
+              <td>{{ l.proveedor || 'Sin proveedor' }}</td>
               <td>{{ l.numero_lote }}</td>
               <td>{{ l.fecha_vencimiento | date: "dd/MM/yyyy" }}</td>
               <td>{{ l.cantidad }}</td>
@@ -41,7 +47,7 @@ import { ApiService } from "./api.service";
                   [class.bad]="l.dias < 0 || l.cantidad <= 0"
                   [class.warn]="l.dias >= 0 && l.dias <= 90"
                   [class.green]="l.dias > 90 && l.cantidad > 0">
-                  {{ l.dias < 0 ? "Vencido" : l.cantidad <= 0 ? "Agotado" : l.dias + " días" }}
+                  {{ l.dias < 0 ? "Vencido" : l.cantidad <= 0 ? "Devuelto" : l.dias + " días" }}
                 </span>
               </td>
               <td>
@@ -82,12 +88,12 @@ import { ApiService } from "./api.service";
               <input type="date" [(ngModel)]="form.fecha_vencimiento" name="ven" [min]="manana" required />
             </label>
             <label>Cantidad
-              <input type="number" [(ngModel)]="form.cantidad" name="cant" min="1" max="100000" required #cantRef="ngModel" />
-              <small style="color: #d32f2f;" *ngIf="cantRef.invalid && (cantRef.dirty || cantRef.touched)">Debe ser entre 1 y 100,000.</small>
+              <input type="number" [(ngModel)]="form.cantidad" name="cant" min="1" max="10000" required #cantRef="ngModel" />
+              <small style="color: #d32f2f;" *ngIf="cantRef.invalid && (cantRef.dirty || cantRef.touched)">Debe ser entre 1 y 10,000.</small>
             </label>
             <label>Costo unitario
-              <input type="number" step=".01" [(ngModel)]="form.costo_unitario" name="costo" min="0" required #costoRef="ngModel" />
-              <small style="color: #d32f2f;" *ngIf="costoRef.invalid && (costoRef.dirty || costoRef.touched)">Mínimo 0.</small>
+              <input type="number" step=".01" [(ngModel)]="form.costo_unitario" name="costo" min="0" max="10000" required #costoRef="ngModel" />
+              <small style="color: #d32f2f;" *ngIf="costoRef.invalid && (costoRef.dirty || costoRef.touched)">Mínimo 0, máximo 10,000.</small>
             </label>
           </div>
           <div class="error" *ngIf="errorMessage">{{ errorMessage }}</div>
@@ -121,6 +127,17 @@ import { ApiService } from "./api.service";
         </form>
       </div>
     </div>
+
+    <!-- Modal de Éxito -->
+    <div class="modal-backdrop" *ngIf="successMessage">
+      <div class="modal" style="max-width: 400px; text-align: center;">
+        <div class="modal-head" style="justify-content: center;"><b>Operación Exitosa</b></div>
+        <p style="margin: 20px 0;">{{ successMessage }}</p>
+        <div class="modal-actions" style="justify-content: center;">
+          <button class="btn primary" (click)="successMessage = ''">Confirmar / Volver</button>
+        </div>
+      </div>
+    </div>
   `
 })
 export class LotsComponent {
@@ -133,7 +150,7 @@ export class LotsComponent {
   hoy = new Date().toISOString().split('T')[0];
   manana = new Date(Date.now() + 86400000).toISOString().split('T')[0];
   errorMessage = '';
-  toastMessage = '';
+  successMessage = '';
   form: any = {};
   formDev: any = {};
 
@@ -192,8 +209,7 @@ export class LotsComponent {
   }
 
   showMessage(msg: string) {
-    this.toastMessage = msg;
-    setTimeout(() => this.toastMessage = '', 3000);
+    this.successMessage = msg;
   }
 
   money(v: any) {

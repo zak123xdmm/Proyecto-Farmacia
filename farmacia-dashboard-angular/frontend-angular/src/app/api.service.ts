@@ -10,6 +10,18 @@ export class ApiService {
     Object.entries(params || {}).forEach(([k, v]) => p = p.set(k, String(v)));
     return this.http.get<T>(url, { params: p });
   }
+  historialMedicamento(id: number, params: Record<string,string|number> = {}) { return this.get<any>(`/api/medicamentos/${id}/movimientos`, params); }
+  conteos(params: Record<string,string|number> = {}) { return this.get<any>('/api/conteos', params); }
+  iniciarConteo(lote_id: number) { return this.http.post<any>('/api/conteos', { lote_id }); }
+  registrarConteo(id: number, body: any) { return this.http.patch<any>(`/api/conteos/${id}`, body); }
+  confirmarConteo(id: number, revision: number) { return this.http.post<any>(`/api/conteos/${id}/confirmar`, { revision }); }
+  detalleVenta(id: number) { return this.http.get<any>(`/api/ventas/${id}`); }
+  anularVenta(id: number, motivo: string) { return this.http.post<any>(`/api/ventas/${id}/anular`, { motivo }); }
+  opcionesReportes() { return this.http.get<any>('/api/reportes/opciones'); }
+  reporteOperativo(tipo: string, params: Record<string,string|number> = {}) { return this.get<any>(`/api/reportes/${tipo}`, params); }
+  exportarReporte(tipo: string, snapshot: string, formato: string) {
+    return this.http.get(`/api/reportes/${tipo}/exportar`, { params: { snapshot, formato }, responseType: 'blob' });
+  }
   catalogo(q = '') { return this.get<any>('/api/catalogo', { q }); }
   medicamentos(params: Record<string,string|number> = {}) { return this.get<any>('/api/medicamentos', params); }
   medicamento(id: number) { return this.http.get<any>(`/api/medicamentos/${id}`); }

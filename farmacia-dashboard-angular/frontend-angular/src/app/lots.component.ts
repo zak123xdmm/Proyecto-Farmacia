@@ -2,10 +2,11 @@ import { Component, inject } from "@angular/core";
 import { CommonModule } from "@angular/common";
 import { FormsModule } from "@angular/forms";
 import { ApiService } from "./api.service";
+import { SearchSelectComponent } from './search-select.component';
 
 @Component({
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, SearchSelectComponent],
   template: `
     <div class="page-head">
       <div>
@@ -66,16 +67,10 @@ import { ApiService } from "./api.service";
         <form #loteForm="ngForm" (ngSubmit)="save()">
           <div class="form-grid">
             <label>Medicamento
-              <select [(ngModel)]="form.medicamento_id" name="med" required>
-                <option [ngValue]="null">Selecciona</option>
-                <option *ngFor="let m of data?.medicamentos" [ngValue]="m.id">{{ m.nombre_comercial }}</option>
-              </select>
+              <app-search-select [(ngModel)]="form.medicamento_id" name="med" required [options]="data?.medicamentos" [searchKeys]="['principio_activo','laboratorio']" [emptyValue]="null" placeholder="Escribe para buscar (ej. amox)…"></app-search-select>
             </label>
             <label>Proveedor
-              <select [(ngModel)]="form.proveedor_id" name="prov">
-                <option [ngValue]="null">Sin proveedor</option>
-                <option *ngFor="let p of data?.proveedores" [ngValue]="p.id">{{ p.nombre }}</option>
-              </select>
+              <app-search-select [(ngModel)]="form.proveedor_id" name="prov" [options]="data?.proveedores" labelKey="nombre" [emptyValue]="null" emptyLabel="Sin proveedor" placeholder="Sin proveedor · escribe para buscar…"></app-search-select>
             </label>
             <label>Número de lote
               <input [(ngModel)]="form.numero_lote" name="lote" required minlength="3" maxlength="80" pattern="^\\S+$" #loteRef="ngModel" />

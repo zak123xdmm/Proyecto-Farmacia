@@ -1,11 +1,12 @@
 "use strict";
 
 const { pool } = require("../config/database");
+const { registrarMovimiento, errorHttp } = require("../services/control-operativo.service");
 
 const obtenerDatosVenta = async (req, res, next) => {
   try {
     const [meds] = await pool.query(`
-      SELECT m.id, m.nombre_comercial, m.precio, m.requiere_receta, 
+      SELECT m.id, m.nombre_comercial, m.principio_activo, m.laboratorio, m.presentacion, m.precio, m.requiere_receta, 
              COALESCE(SUM(CASE WHEN l.fecha_vencimiento>=CURDATE() THEN l.cantidad ELSE 0 END),0) stock 
       FROM medicamentos m 
       LEFT JOIN lotes l ON l.medicamento_id = m.id 
@@ -119,12 +120,12 @@ const registrarVenta = async (req, res, next) => {
     }
 
     const [lotesDisp] = await conn.query(
-      "SELECT * FROM lotes WHERE medicamento_id=? AND cantidad>0 AND fecha_vencimiento>=CURDATE() ORDER BY fecha_vencimiento ASC FOR UPDATE",
+      "SELECT * FROM lotes WHERE medicamento_id=? AND cantidad>0 AND fecha_vencimiento>=CURDATE() ORDER BY fecha_vencimiento ASC, id ASC FOR UPDATE",
       [medId],
     );
 
     const price = parseFloat(m.precio);
-    const total = price * qty;
+    const total = Math.round(price * 100) * qty / 100;
 
     const [ventaRes] = await conn.query(
       "INSERT INTO ventas(usuario_id, total) VALUES(?, ?)",
@@ -136,24 +137,24 @@ const registrarVenta = async (req, res, next) => {
     for (const l of lotesDisp) {
       if (restante <= 0) break;
       const tomar = Math.min(restante, parseInt(l.cantidad));
-      const subtotal = price * tomar;
+      const subtotal = Math.round(price * 100) * tomar / 100;
 
       await conn.query(
         "INSERT INTO venta_detalles(venta_id, medicamento_id, lote_id, cantidad, precio_unitario, subtotal) VALUES(?, ?, ?, ?, ?, ?)",
         [vid, medId, l.id, tomar, price, subtotal],
       );
-      await conn.query("UPDATE lotes SET cantidad=cantidad-? WHERE id=?", [
+      await conn.query("UPDATE lotes SET cantidad=cantidad-?, version_stock=version_stock+1 WHERE id=?", [
         tomar,
         l.id,
       ]);
-      await conn.query(
-        "INSERT INTO movimientos_inventario(lote_id, tipo, cantidad, referencia) VALUES(?, 'VENTA', ?, ?)",
-        [l.id, tomar, `Venta #${vid}`],
-      );
+      await registrarMovimiento(conn, { lote_id: l.id, medicamento_id: medId,
+        tipo: 'VENTA', anterior: Number(l.cantidad), posterior: Number(l.cantidad)-tomar,
+        usuario_id: req.user.sub, origen_tipo: 'VENTA', origen_id: vid, referencia: `Venta #${vid}` });
 
       restante -= tomar;
     }
 
+    if (restante !== 0) throw errorHttp(409, 'El stock cambió durante la venta. Vuelva a intentarlo.');
     await conn.commit();
     res.json({
       ok: true,

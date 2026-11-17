@@ -1,11 +1,14 @@
-import { Component, inject } from '@angular/core';
+import { Component, OnDestroy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from './api.service';
+import { RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
+import { SearchSelectComponent } from './search-select.component';
 
 @Component({
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink, SearchSelectComponent],
   template: `
 <div class="page-head">
   <div>
@@ -16,12 +19,9 @@ import { ApiService } from './api.service';
   <button class="btn primary" (click)="openForm()">+ Nuevo medicamento</button>
 </div>
 <div class="toolbar">
-  <input [(ngModel)]="q" (keyup.enter)="load()" placeholder="Buscar por nombre, principio activo o laboratorio…">
-  <select [(ngModel)]="lab" (change)="load()">
-    <option value="">Todos los laboratorios</option>
-    <option *ngFor="let x of filters?.laboratorios" [value]="x.laboratorio">{{x.laboratorio}}</option>
-  </select>
-  <button class="btn ghost" (click)="load()">Buscar</button>
+  <input [(ngModel)]="q" (input)="onSearch()" (keyup.enter)="searchNow()" placeholder="Buscar por nombre, principio activo o laboratorio… (ej. amox)">
+  <app-search-select [(ngModel)]="lab" (ngModelChange)="searchNow()" [options]="filters?.laboratorios" valueKey="laboratorio" labelKey="laboratorio" emptyValue="" emptyLabel="Todos los laboratorios" placeholder="Todos los laboratorios"></app-search-select>
+  <button class="btn ghost" (click)="searchNow()">Buscar</button>
 </div>
 <section class="panel table-panel">
   <div class="panel-head">
@@ -44,6 +44,7 @@ import { ApiService } from './api.service';
           <td><span class="stock">{{m.stock_minimo}}</span></td>
           <td>{{money(m.precio)}}</td>
           <td>
+            <a class="link-btn" [routerLink]="['/inventario',m.id,'historial']">Detalle e historial</a>
             <button class="link-btn" (click)="edit(m)">Editar</button>
             <button class="danger-link" (click)="confirmDelete(m)">Eliminar</button>
           </td>
@@ -138,7 +139,7 @@ import { ApiService } from './api.service';
 <div class="toast" *ngIf="message">{{message}}</div>
   `
 })
-export class InventoryComponent {
+export class InventoryComponent implements OnDestroy {
   api = inject(ApiService);
   meds: any[] = [];
   filters: any;
@@ -155,10 +156,19 @@ export class InventoryComponent {
   errorMessage = '';
   form: any = {};
 
+  private timer: any;
+  private req?: Subscription;
+
   ngOnInit() { this.load(); }
+  ngOnDestroy() { clearTimeout(this.timer); this.req?.unsubscribe(); }
+
+  /** Búsqueda mientras se escribe: espera una pausa breve y vuelve a la primera página. */
+  onSearch() { clearTimeout(this.timer); this.timer = setTimeout(() => this.searchNow(), 300); }
+  searchNow() { clearTimeout(this.timer); this.page = 1; this.load(); }
 
   load() {
-    this.api.medicamentos({ q: this.q, laboratorio: this.lab, page: this.page }).subscribe({
+    this.req?.unsubscribe();
+    this.req = this.api.medicamentos({ q: this.q, laboratorio: this.lab, page: this.page }).subscribe({
       next: r => {
         this.meds = r.medicamentos || [];
         this.filters = r.filtros;

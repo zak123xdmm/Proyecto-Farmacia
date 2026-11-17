@@ -56,6 +56,7 @@ const reglasMedicamento = [
 // Rutas GET
 router.get("/", requireLogin, medicamentosController.listarMedicamentos);
 router.get("/:id", requireLogin, medicamentosController.obtenerMedicamento);
+router.get("/:id/movimientos", requireLogin, require("../controllers/control-operativo.controller").historial);
 
 // Rutas POST / DELETE
 // 4. Inyectamos las reglas y el validador antes del controlador

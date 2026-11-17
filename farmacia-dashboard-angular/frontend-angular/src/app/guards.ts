@@ -13,3 +13,8 @@ export const adminGuard: CanActivateFn = () => {
   if (auth.user?.rol === 'Administrador/Gerente') return true;
   return inject(Router).createUrlTree(['/']);
 };
+export const inventarioGuard: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  if (['Administrador/Gerente','Farmacéutico Regente'].includes(auth.user?.rol || '')) return true;
+  return inject(Router).createUrlTree(['/']);
+};

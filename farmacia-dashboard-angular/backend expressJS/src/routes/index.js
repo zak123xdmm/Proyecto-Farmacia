@@ -20,5 +20,6 @@ router.use("/lotes", lotesRoutes);
 router.use("/ventas", ventasRoutes);
 router.use("/reportes", reportesRoutes);
 router.use("/catalogo", catalogoRoutes);
+router.use("/conteos", require("./conteos.routes"));
 
 module.exports = router;

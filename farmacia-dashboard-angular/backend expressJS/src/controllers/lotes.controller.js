@@ -1,10 +1,11 @@
 "use strict";
 
 const { pool } = require("../config/database");
+const { registrarMovimiento } = require("../services/control-operativo.service");
 
 const listarLotes = async (req, res, next) => {
   try {
-    const [meds] = await pool.query("SELECT id, nombre_comercial FROM medicamentos WHERE activo=1 ORDER BY nombre_comercial");
+    const [meds] = await pool.query("SELECT id, nombre_comercial, principio_activo, laboratorio FROM medicamentos WHERE activo=1 ORDER BY nombre_comercial");
     const [prov] = await pool.query("SELECT id, nombre FROM proveedores WHERE activo=1 ORDER BY nombre");
     const [rows] = await pool.query(`
       SELECT l.*, m.nombre_comercial, p.nombre proveedor, DATEDIFF(l.fecha_vencimiento, CURDATE()) dias 
@@ -51,6 +52,12 @@ const ingresarLote = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
+    // Mismo orden de bloqueo que ventas, ajustes y anulaciones.
+    const [[medicamento]] = await conn.query("SELECT id FROM medicamentos WHERE id=? AND activo=1 FOR UPDATE", [parseInt(medicamento_id)]);
+    if (!medicamento) {
+      await conn.rollback();
+      return res.status(404).json({ ok: false, mensaje: 'Medicamento no encontrado o inactivo.' });
+    }
     const [loteExistente] = await conn.query(
       "SELECT id FROM lotes WHERE medicamento_id = ? AND numero_lote = ?",
       [parseInt(medicamento_id), numero_lote.trim()]
@@ -67,10 +74,9 @@ const ingresarLote = async (req, res, next) => {
     );
     
     const loteId = loteRes.insertId;
-    await conn.query(
-      "INSERT INTO movimientos_inventario(lote_id, tipo, cantidad, referencia) VALUES(?, 'INGRESO', ?, ?)",
-      [loteId, qty, 'Compra / ingreso']
-    );
+    await registrarMovimiento(conn, { lote_id: loteId, medicamento_id: parseInt(medicamento_id),
+      tipo: 'INGRESO', anterior: 0, posterior: qty, usuario_id: req.user.sub,
+      origen_tipo: 'LOTE', origen_id: loteId, referencia: 'Compra / ingreso' });
 
     await conn.commit();
     res.json({ ok: true, mensaje: 'Lote ingresado correctamente.' });
@@ -92,6 +98,12 @@ const devolverLote = async (req, res, next) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
+    const [[origen]] = await conn.query("SELECT medicamento_id FROM lotes WHERE id=?", [lId]);
+    if (!origen) {
+      await conn.rollback();
+      return res.status(404).json({ ok: false, mensaje: 'Lote no encontrado.' });
+    }
+    await conn.query("SELECT id FROM medicamentos WHERE id=? FOR UPDATE", [origen.medicamento_id]);
     const [st] = await conn.query(
       "SELECT l.*, m.nombre_comercial FROM lotes l JOIN medicamentos m ON m.id = l.medicamento_id WHERE l.id = ? FOR UPDATE", 
       [lId]
@@ -109,11 +121,10 @@ const devolverLote = async (req, res, next) => {
 
     const ref = 'Devolución a laboratorio' + (referencia ? ' — ' + referencia.trim() : '');
     
-    await conn.query("UPDATE lotes SET cantidad = cantidad - ? WHERE id = ?", [qty, lId]);
-    await conn.query(
-      "INSERT INTO movimientos_inventario(lote_id, tipo, cantidad, referencia) VALUES(?, 'DEVOLUCION', ?, ?)", 
-      [lId, qty, ref]
-    );
+    await conn.query("UPDATE lotes SET cantidad = cantidad - ?, version_stock=version_stock+1 WHERE id = ?", [qty, lId]);
+    await registrarMovimiento(conn, { lote_id: lId, medicamento_id: lote.medicamento_id,
+      tipo: 'DEVOLUCION', anterior: Number(lote.cantidad), posterior: Number(lote.cantidad)-qty,
+      usuario_id: req.user.sub, origen_tipo: null, origen_id: null, referencia: ref });
 
     await conn.commit();
     res.json({ ok: true, mensaje: `Devolución registrada: ${qty} unidad(es) de ${lote.nombre_comercial}.` });

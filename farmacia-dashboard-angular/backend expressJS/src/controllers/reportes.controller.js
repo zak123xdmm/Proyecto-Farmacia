@@ -11,12 +11,12 @@ const obtenerReportes = async (req, res, next) => {
     const days = p === 'diario' ? 1 : (p === 'semanal' ? 7 : 30);
 
     const [ventas] = await pool.query(
-      "SELECT DATE(fecha) dia, COUNT(*) operaciones, COALESCE(SUM(total),0) total FROM ventas WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL ? DAY) GROUP BY DATE(fecha) ORDER BY dia ASC",
+      "SELECT DATE(fecha) dia, COUNT(*) operaciones, COALESCE(SUM(total),0) total FROM ventas WHERE estado='VIGENTE' AND fecha >= DATE_SUB(CURDATE(), INTERVAL ? DAY) GROUP BY DATE(fecha) ORDER BY dia ASC",
       [days]
     );
 
     const [top] = await pool.query(
-      "SELECT m.nombre_comercial, SUM(d.cantidad) unidades, SUM(d.subtotal) total FROM venta_detalles d JOIN medicamentos m ON m.id=d.medicamento_id GROUP BY m.id ORDER BY unidades DESC LIMIT 10"
+      "SELECT m.nombre_comercial, SUM(d.cantidad) unidades, SUM(d.subtotal) total FROM venta_detalles d JOIN medicamentos m ON m.id=d.medicamento_id JOIN ventas v ON v.id=d.venta_id WHERE v.estado='VIGENTE' GROUP BY m.id ORDER BY unidades DESC LIMIT 10"
     );
 
     const [invRows] = await pool.query(
@@ -32,8 +32,8 @@ const obtenerReportes = async (req, res, next) => {
       ok: true,
       periodo: p,
       valor_inventario: inv,
-      ventas_corte: ventas,
-      productos_top: top,
+      ventas_corte: req.user.rol === 'Administrador/Gerente' ? ventas : [],
+      productos_top: req.user.rol === 'Administrador/Gerente' ? top : [],
       proximos_caducar: cad
     });
   } catch (error) {

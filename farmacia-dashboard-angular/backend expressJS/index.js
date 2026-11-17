@@ -1,5 +1,5 @@
 "use strict";
-
+/* c */
 const app = require("./src/app");
 const env = require("./src/config/env");
 const { testConnection } = require("./src/config/database");
